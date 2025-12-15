@@ -1,0 +1,26 @@
+# Job submission configuration file
+#
+---
+
+#
+# Configure the content of the job script for the batch job here
+# @see http://www.rubydoc.info/gems/ood_core/OodCore/BatchConnect/Template
+#
+batch_connect:
+  # We use the basic web server template for generating the job script
+  template: "basic"
+
+#
+# Configure the job script submission parameters for the batch job here
+#
+## < % if node_type == 'yes' %>
+#    - "--gres=gpu:1"
+# < % end %>
+
+script:
+  copy_environment: no
+  native:
+    - "--cpus-per-task=<%= num_cores %>"
+    - "--mem=<%= memory %>G"
+    - "--time=<%= bc_num_hours %>:00:00"
+    - "--partition=<%= use_gpu %>"

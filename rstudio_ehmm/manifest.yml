@@ -1,0 +1,8 @@
+---
+name: EHMM
+category: Interactive Apps
+subcategory: Servers
+role: batch_connect
+host: false
+description: |
+  This app will launch an RStudio server on one or more nodes.

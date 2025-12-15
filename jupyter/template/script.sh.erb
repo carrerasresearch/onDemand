@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+# Benchmark info
+#echo "TIMING - Starting main script at: $(date)"
+
+# Set working directory to home directory
+#cd "${HOME}"
+
+#
+# Start Jupyter Notebook Server
+#
+
+<%- unless context.modules.blank? -%>
+# Purge the module environment to avoid conflicts
+module purge
+
+# Load the require modules (This section is currently commented out in your script, but kept for reference)
+#module load <%= context.modules %>
+#module load singularity
+# List loaded modules
+#module list
+<%- end -%>
+
+# Benchmark info
+echo "TIMING - Starting jupyter at: $(date)"
+
+# Explicitly set the HOME variable at the beginning of the script to be safe.
+# The `OOD_HOME` variable is provided by OnDemand for this purpose.
+export HOME="${HOME}"
+
+# Load the required environment
+setup_env () {
+  # Additional environment which could be moved into a module
+  # Change these to suit
+  export JUPYTERLAB_IMAGE="/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu.sif"
+  echo "hostname: `hostname`"
+  module load singularity
+  module load Python/3.8.5-GCCcore-11.2.0
+
+  <% if context.use_gpu == 'test-gpu' %>
+  # Load the CUDA module only when GPU is requested in the form
+  module load CUDA/12.3.1 
+  <% end %>
+}
+
+setup_env
+
+#
+# Start JupyterLab
+#
+
+# Temporary directory to be populated with directories to bind-mount in the container
+
+# where writable file systems are necessary.
+
+workdir="${HOME}/jupyterlab_ehmm"
+
+mkdir -p -m 700 $workdir
+
+
+
+# Bindings
+export SINGULARITY_BINDPATH="${workdir}/run:/run,/ijc:/ijc"
+
+mkdir -p -m 700 ${workdir}/run ${workdir}/tmp ${workdir}/R/user-libs 
+
+# Set working directory to home directory
+cd "${HOME}"
+
+export TMPDIR="$(mktemp -d)"
+
+mkdir -p "$TMPDIR/jupyterlab-server"
+python3 -c 'from uuid import uuid4; print(uuid4())' > "$TMPDIR/jupyterlab-server/secure-cookie-key"
+chmod 0600 "$TMPDIR/jupyterlab-server/secure-cookie-key"
+
+set -x
+# Launch the JupyterLab Server
+echo "Starting up JupyterLab server..."
+
+# Determine if the --nv (GPU) flag should be used for Singularity
+SINGULARITY_GPU_FLAG=""
+<% if context.use_gpu == 'test-gpu' %>
+SINGULARITY_GPU_FLAG="--nv"
+<% end %>
+
+# Launch the JupyterLab Server
+singularity run ${SINGULARITY_GPU_FLAG} \
+  -B ${workdir}/R/user-libs:${workdir}/R/user-libs --env R_LIBS_USER=${workdir}/R/user-libs "${JUPYTERLAB_IMAGE}" \
+  /bin/bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && /opt/conda/envs/jlab-env/bin/jupyter-lab --no-browser --ip=0.0.0.0 --autoreload --notebook-dir="$(pwd)" -y --config="${CONFIG_FILE}" "
+
+echo 'Singularity as exited...'

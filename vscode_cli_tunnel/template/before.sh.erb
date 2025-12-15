@@ -1,0 +1,13 @@
+# This script (`before.sh.erb`) is sourced directly into the main Bash script
+# that is run when the batch job starts up.
+#
+# We MUST supply the following environment variables for OnDemand to connect:
+#
+#   - $host (already defined earlier, so no need to define again)
+#     The host that the web server is listening on
+#
+#   - $port
+#     The port that the web server is listening on
+port=$(find_port)
+password=$PWD
+

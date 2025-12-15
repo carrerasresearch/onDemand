@@ -1,0 +1,8 @@
+---
+name: Cellwishperer Web
+category: Interactive Apps
+subcategory: Servers
+role: batch_connect
+host: false  
+description: |
+  This app will launch a Cellwishperer cellxgene

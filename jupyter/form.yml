@@ -1,0 +1,39 @@
+cluster: minastirith
+form:
+  - modules
+  - extra_jupyter_args
+  - bc_num_hours
+  - use_gpu
+  - num_cores
+  - memory
+  - bc_email_on_started
+attributes:
+  modules: python
+  extra_jupyter_args: ""
+  memory:
+    widget: number_field
+    max: 200
+    min: 1
+    step: 1
+    value: 3
+    label: Memory (Gb)
+    help: RSS Memory
+    display: true
+  use_gpu:
+    label: Use GPU
+    widget: select
+    options:
+      - [ false, test, data-max-num-cores: 16, data-set-bc-queue: test ]
+      - [ true, test-gpu, data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
+  num_cores:
+    label: Number of CPUs
+    widget: number_field
+    value: 1
+    max: 16
+    min: 1
+    help: Specify the number of CPUs to request. GPU nodes have a CPU limit of 4.
+    display: true
+  bc_queue:
+    widget: hidden_field
+    value: "test"
+    display: false

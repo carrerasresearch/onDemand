@@ -1,0 +1,84 @@
+#!/bin/bash
+# script.sh.erb
+# This script is executed on the compute node.
+# --- SETUP AND VARIABLES ---
+# Define the local path where the token should exist
+
+# Singularity Image Path
+SINGULARITY_IMAGE="/ijc/PUBLIC/DATA/images/vscode-tunnel.sif"
+
+echo "================================================="
+echo "  Launching VS Code Tunnel via Singularity..."
+echo "  Node:      $(hostname)"
+echo "================================================="
+
+# Load the singularity module
+module load singularity
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to load singularity module."
+    exit 1
+fi
+
+
+# --- WRITE CONNECTION METADATA  ---
+# Write the connection file immediately after launching the service.
+# SESSION_DIR="<%= Dir.pwd %>"
+#e cho "Session dir: $SESSION_DIR"
+
+#cat > connection.yml <<END
+#host: $(hostname -f)
+#password: $SESSION_DIR  # Session path via password field
+#END
+
+# ---
+
+# --- CONDITIONAL AUTHENTICATION CHECK ---
+
+# Function to check the login status inside the container
+# We capture the output and check if it contains the "not logged in" string.
+LOGIN_STATUS=$(/usr/bin/env bash -c "singularity exec \
+  $SINGULARITY_IMAGE \
+  /usr/container/bin/code tunnel user show")
+
+# Check if the output of 'code tunnel user show' indicates a logged-in state.
+# If the output contains 'not logged in', the check fails (status needed).
+if echo "$LOGIN_STATUS" | grep -q "not logged in"; then
+    echo "Authentication status: NOT LOGGED IN. Running interactive login (Microsoft)."
+
+    # Run the interactive login command. This will prompt the user for the device code.
+    /usr/bin/env bash -c "singularity exec \
+      $SINGULARITY_IMAGE \
+      /usr/container/bin/code tunnel user login --provider microsoft"
+
+    # Important: The user must complete the web authentication while this command is running.
+    # A brief pause to ensure the token is written to disk after successful authentication.
+    sleep 2
+else
+    # Output the current login status (e.g., "logged in with provider Microsoft Account")
+    echo "Authentication status: $LOGIN_STATUS"
+    echo "Stored credentials found and will be used."
+fi
+
+
+# --- LAUNCH TUNNEL SERVICE (Background) ---
+# Launch the main tunnel service in the background (&).
+
+echo "Launching VS Code Tunnel service..."
+
+/usr/bin/env bash -c "singularity run \
+  -B /etc/slurm:/etc/slurm     -B /var/run/munge:/var/run/munge     -B /usr/local/bin:/usr/local/bin    -B /opt:/opt     -B /ijc:/ijc \
+  $SINGULARITY_IMAGE" &
+
+# Capture the process ID
+TUNNEL_PID=$!
+
+# --- 5. KEEP JOB ALIVE ---
+# The 'wait' command prevents the script from exiting until the tunnel process finishes.
+echo "Tunnel service launched in background (PID: $TUNNEL_PID). Waiting for job termination..."
+wait $TUNNEL_PID
+
+# --- 6. Cleanup and Exit ---
+echo "================================================="
+echo "VS Code Tunnel process exited or job reached walltime."
+echo "================================================="
+exit 0

@@ -1,0 +1,25 @@
+---
+cluster: "minastirith"
+attributes:
+  memory:
+    widget: "number_field"
+    max: 200
+    min: 3
+    step: 1
+    value: 3
+    label: "Memory (Gb)"
+    help: "RSS Memory"
+    display: true
+  custom_cpus:
+    label: "Number of CPUs"
+    widget: "number_field"
+    value: 1
+    min: 1
+    max: 16  
+    help: "Specify the number of CPUs to request."
+    display: true  
+form:
+  - bc_num_hours
+  - custom_cpus  
+  - memory
+  - bc_email_on_started

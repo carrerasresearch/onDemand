@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+
+#
+# Start cellxgene Server
+#
+
+<%- unless context.modules.blank? -%>
+# Purge the module environment to avoid conflicts
+module purge
+<%- end -%>
+
+# Benchmark info
+echo "TIMING - Starting cellxgene at: $(date)"
+
+# Explicitly set the HOME variable at the beginning of the script to be safe.
+export HOME="${HOME}"
+
+# Define the container image path
+export CELLWHISPERER_IMAGE="/ijc/PUBLIC/DATA/images/cellwhisperer.sif"
+
+# Get form values from the context
+export PROCESSED_DATA_PATH="<%= context.processed_dataset_path %>"
+export PARAMS="<%= context.cellxgen_params %>"
+
+setup_env () {
+  echo "hostname: `hostname`"
+  # Load the necessary modules: singularity is required to run the container
+  module load singularity
+  
+  <% if context.use_gpu == 'test-gpu' %>
+  # Load the CUDA module only when GPU is requested in the form
+  module load CUDA/12.3.1 
+  <% end %>
+}
+
+setup_env
+
+#
+# Start cellxgene
+#
+
+# Determine if the --nv (GPU) flag should be used for Singularity
+SINGULARITY_GPU_FLAG=""
+<% if context.use_gpu == 'test-gpu' %>
+SINGULARITY_GPU_FLAG="--nv"
+<% end %>
+
+# Example for mounting the *directory* containing the data
+DATA_DIR=$(dirname "${PROCESSED_DATA_PATH}")
+
+set -x
+echo "Starting up cellxgene server..."
+
+# Launch the cellxgene server inside the container
+# 1. singularity run: Runs the container
+# 2. --nv or no flag: Handles GPU access if requested
+# 3. -B .:/: Mounts the current working directory to the container's root. 
+# 4. /bin/bash -c "..." : Executes the command sequence inside the container.
+#    a. conda activate cellwhisperer: Activates the environment.
+#    b. cellxgene launch ...: Starts the server.
+#       -p ${PORT}: Uses the port assigned by OnDemand.
+#       -p ${PROCESSED_DATA_PATH}: Uses the path from the form.
+singularity run ${SINGULARITY_GPU_FLAG} \
+  --containall \
+  -B "${DATA_DIR}":"${DATA_DIR}" \
+  "${CELLWHISPERER_IMAGE}" \
+  /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh && \
+  conda activate cellwhisperer && \
+  cellxgene launch -p ${port} --host 0.0.0.0 --max-category-items 500 \
+    ${PARAMS} \
+    \"${PROCESSED_DATA_PATH}\""
+
+echo 'Singularity has exited...'

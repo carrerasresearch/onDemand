@@ -1,0 +1,86 @@
+<%
+  # 1. Retrieve the session directory path from @password
+  # Get the absolute directory path passed from connection.yml
+  session_dir = password
+  # Construct the absolute filesystem path
+  output_log_path = File.join(session_dir, "output.log")
+
+  log_content = File.exist?(output_log_path) ? File.read(output_log_path) : ""
+
+
+  # 2. Robust Regex to find the authentication code (Code Found)
+  # Capture the 9-character alphanumeric code between "code " and " to authenticate"
+  # Updated regex to be slightly more flexible with whitespace and boundary
+  auth_code_match = log_content.match(/code\s+([A-Z0-9]{9})\s+to\s+authenticate/i)
+
+  # 3. Regex to find and capture the URL up to the tunnel name (Ready)
+  # Pattern: (Capture everything up to the slash after the tunnel name)
+  # [^\/]+ matches the tunnel name.
+  tunnel_link_match = log_content.match(/(https:\/\/vscode\.dev\/tunnel\/[^\/]+)/i)
+
+  # 4. Define constant URLs
+  device_login_url = "https://microsoft.com/devicelogin"
+%>
+
+<div class="well">
+
+  <% if tunnel_link_match %>
+    <%# STATE 2: CONNECTION READY (Tunnel Link Found) %>
+    <% tunnel_link = tunnel_link_match[1] %>
+    <div class="alert alert-success text-center">
+
+      <a href="<%= tunnel_link %>" target="_blank" class="btn btn-lg btn-secondary mb-3">
+        Connect in VS Code <b>Web</b>
+      </a>
+
+      <hr>
+
+      <h5 class="text-success">Connect via <b>Local</b> VS Code Client:</h5>
+      <ol class="list-group list-group-flush text-left" style="max-width: 500px; margin: 0 auto;">
+          <li class="list-group-item">
+            1. Ensure you have the <b>Remote - Tunnels</b> extension installed.
+          </li>
+          <li class="list-group-item">
+            2. Open the <b>Command Palette</b>.
+          </li>
+          <li class="list-group-item">
+            3. Run the command: <b>Remote-Tunnels: Connect to Tunnel...</b>
+          </li>
+          <li class="list-group-item">
+            4. Select your <b>signed-in Microsoft account</b> and the tunnel named:
+              <code style="font-weight: bold;">
+                  <%= tunnel_link.match(/\/tunnel\/([^\/]+)/)[1] rescue 'Error parsing name' %>
+              </code>
+          </li>
+      </ol>
+    </div>
+
+  <% elsif auth_code_match %>
+    <%# STATE 1: AUTHENTICATION REQUIRED (Login Flow) %>
+    <% auth_code = auth_code_match[1] %>
+    <div class="alert alert-danger text-center">
+      <p>The tunnel requires sign-in. This must be done <b>only once</b> per account.</p>
+
+      <p> <b>Copy this code:</b> <code style="font-size: 1.2em;"><%= auth_code %></code></p>
+
+      <%# Construct the URL with the code for easier access %>
+      <a href="<%= device_login_url %>" target="_blank" class="btn btn-lg btn-primary">
+        Sign in to Microsoft
+      </a>
+    </div>
+
+  <% else %>
+    <%# STATE 3: WAITING / ERROR / INITIAL STARTUP %>
+    <p class="alert alert-info">
+      Waiting for tunnel service initialization or authentication prompt...
+    </p>
+
+    <% if log_content.present? %>
+      <h4>Current Log Output:</h4>
+      <pre style="max-height: 300px; overflow-y: scroll;"><%= log_content %></pre>
+    <% else %>
+      <p><%= output_log_path %></p>
+    <% end %>
+
+  <% end %>
+</div>

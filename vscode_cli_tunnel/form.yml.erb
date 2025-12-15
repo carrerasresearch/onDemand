@@ -1,0 +1,21 @@
+cluster: minastirith
+form:
+  - bc_num_hours
+  - bc_num_slots 
+  - memory
+attributes:
+  bc_num_slots:
+    label: "Number of Cores"
+    widget: "number_field"
+    value: 1
+    min: 1
+    max: 8
+  memory:
+    widget: number_field
+    max: 200
+    min: 16
+    step: 1
+    value: 16
+    label: Memory (Gb)
+    help: RSS Memory
+    display: true

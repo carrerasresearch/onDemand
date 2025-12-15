@@ -1,0 +1,8 @@
+---
+name: Bioconducor 3.21
+category: Interactive Apps
+subcategory: Servers
+role: batch_connect
+host: false
+description: |
+  RStudio Bioconductor 3.21 R 4.5 and Tidyverse

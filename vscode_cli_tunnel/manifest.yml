@@ -1,0 +1,6 @@
+role: batch_connect
+subcategory: CLI Tools
+name: VS Code Tunnel
+description: Launches an interactive Singularity container for VS Code access.
+icon: icon.png
+category: Interactive Apps
