@@ -24,6 +24,8 @@ setup_env
 # Setup workspace
 workdir="${HOME}/jupyterlab_ood"
 mkdir -p -m 700 "$workdir/run" "$workdir/tmp" "$workdir/R/user-libs"
+# Create a specific folder for container-based python libraries
+mkdir -p -m 700 "$workdir/python-libs"
 
 # --- RESTORE OOD COOKIE LOGIC ---
 export TMPDIR="$(mktemp -d)"
@@ -49,7 +51,9 @@ SINGULARITY_GPU_FLAG="--nv"
 set -x
 singularity exec ${SINGULARITY_GPU_FLAG} --cleanenv \
   -B "${workdir}/R/user-libs:${workdir}/R/user-libs" \
+  -B "${workdir}/python-libs:${workdir}/python-libs" \
   --env R_LIBS_USER="${workdir}/R/user-libs" \
+  --env PYTHONUSERBASE="${workdir}/python-libs" \
   --env CONDA_ENVS_PATH="/opt/conda/envs,~/.conda/envs" \
   --env SHELL="/bin/bash" \
   "${JUPYTERLAB_IMAGE}" \
