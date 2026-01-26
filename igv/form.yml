@@ -1,0 +1,7 @@
+---
+cluster: minastirith
+form:
+  - bc_num_hours
+attributes:
+  bc_vnc_resolution:
+    value: "1280x800"

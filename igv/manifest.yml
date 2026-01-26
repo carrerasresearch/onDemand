@@ -1,0 +1,8 @@
+---
+name: IGV Desktop
+description: |
+  Integrative Genomics Viewer (IGV) desktop application running in a VNC session.
+category: Interactive Apps
+subcategory: Genomics
+role: batch_connect
+icon: igv.png

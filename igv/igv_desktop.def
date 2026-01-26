@@ -1,0 +1,43 @@
+Bootstrap: docker
+From: ubuntu:24.04
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y \
+        wget \
+        openjdk-17-jdk \
+        fluxbox \
+        xterm \
+        libxext6 \
+        libxrender1 \
+        libxtst6 \
+        libxi6 \
+        libfreetype6 \
+        fonts-dejavu \
+        dbus-x11 \
+        unzip \
+    	python3-pip \
+	python3-websockify 
+
+    # 1. Install IGV 2.19.7
+    wget https://data.broadinstitute.org/igv/projects/downloads/2.19/IGV_Linux_2.19.7_WithJava.zip
+    unzip IGV_Linux_2.19.7_WithJava.zip -d /opt/
+    ln -s /opt/IGV_Linux_2.19.7/igv.sh /usr/local/bin/igv.sh
+    rm IGV_Linux_2.19.7_WithJava.zip
+
+    # 2. Install TurboVNC (Required for high-performance OOD VNC)
+    wget https://github.com/TurboVNC/turbovnc/releases/download/3.2.1/turbovnc_3.2.1_amd64.deb
+    apt-get install -y ./turbovnc_3.2.1_amd64.deb
+    rm turbovnc_3.2.1_amd64.deb
+
+%environment
+    export PATH=/opt/TurboVNC/bin:$PATH
+    export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+    export LC_ALL=C
+
+%runscript
+    # Start the window manager so we can move the IGV window
+    fluxbox &
+    sleep 2
+    # Start IGV
+    /usr/local/bin/igv.sh -Xmx8g

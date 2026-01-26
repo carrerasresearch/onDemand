@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+
+# 1. Capture the EXACT job directory
+export OOD_SESSION_DIR=$(readlink -f "$PWD")
+
+# 2. Define Shared Paths
+SHARED_REF="/mnt/beegfs/public/references"
+LOCAL_DATA="/ijc/PUBLIC/DATA"
+
+# 3. CLEAN UP & SYNC (Host-side)
+ANNOT_DIR="$SHARED_REF/annotation/human"
+REFSEQ_FILE="$ANNOT_DIR/ncbiRefSeqSelect.txt.gz"
+# Clean up that 0-byte file from the 404 error
+[ -f "${REFSEQ_FILE}.tbi" ] && [ ! -s "${REFSEQ_FILE}.tbi" ] && rm -f "${REFSEQ_FILE}.tbi"
+
+mkdir -p "$ANNOT_DIR"
+if [ ! -s "$REFSEQ_FILE" ]; then
+    echo "Downloading annotation..."
+    wget -q -O "$REFSEQ_FILE" https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/ncbiRefSeqSelect.txt.gz
+    chmod 644 "$REFSEQ_FILE"
+fi
+
+module purge
+module load singularity || module load apptainer
+IMAGE="/ijc/PUBLIC/DATA/images/igv_desktop_v1.sif"
+
+# 4. IGV Config Injection
+mkdir -p "${OOD_SESSION_DIR}/igv"
+cat << EOT > "${OOD_SESSION_DIR}/igv/prefs.properties"
+IGV.track.showDefaultTrackSets=false
+IGV.genome.checkUpdates=false
+EOT
+
+# 5. Launch inside Singularity
+# We bind the BeeGFS as Read-Only (:ro) so other users can't break it
+singularity exec \
+    -B /tmp:/tmp \
+    -B "${SHARED_REF}:/genome:ro" \
+    -B "${LOCAL_DATA}:/storage:ro" \
+    -B "${OOD_SESSION_DIR}:${OOD_SESSION_DIR}" \
+    --home "${OOD_SESSION_DIR}" \
+    "$IMAGE" /bin/bash << 'EOF'
+  
+  # A. DISCOVERY
+  export WS_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("", 0)); print(s.getsockname()[1]); s.close()')
+  export PASS_RAW=$(python3 -c 'import secrets; print(secrets.token_urlsafe(8))')
+  export DISP_NUM=$(for i in $(seq 100 500); do [ ! -f "/tmp/.X${i}-lock" ] && echo "$i" && break; done)
+  export VNC_PORT=$((5900 + DISP_NUM))
+  
+  # B. WRITE CONNECTION FILE
+  echo -e "host: $(hostname)\nport: ${WS_PORT}\ndisplay: ${DISP_NUM}\npassword: ${PASS_RAW}" > "${OOD_SESSION_DIR}/connection.yml"
+
+  # C. VNC SETUP
+  mkdir -p ~/.vnc
+  echo "$PASS_RAW" | /opt/TurboVNC/bin/vncpasswd -f > ~/.vnc/passwd
+  echo -e "#!/bin/sh\n/usr/bin/fluxbox & \nwait \$!" > "${OOD_SESSION_DIR}/xstartup_minimal"
+  chmod +x "${OOD_SESSION_DIR}/xstartup_minimal"
+  /opt/TurboVNC/bin/vncserver :$DISP_NUM -rfbport $VNC_PORT -rfbauth $HOME/.vnc/passwd -xstartup "${OOD_SESSION_DIR}/xstartup_minimal" -geometry 1920x1080 -localhost &
+  
+  sleep 3
+  python3 -m websockify $WS_PORT 127.0.0.1:$VNC_PORT &
+
+  # D. LAUNCH IGV
+  export DISPLAY=:$DISP_NUM
+  export JAVA_OPTS="-Xmx12g -Djava.awt.headless=false"
+  
+  INT_GENOME="/genome/genome/human/GRCh38.primary_assembly.genome.fa"
+  INT_ANNOT="/genome/annotation/human/ncbiRefSeqSelect.txt.gz"
+
+  # If no index exists, IGV will generate a temporary one in the session dir
+  # because it cannot write to the :ro (Read Only) genome folder.
+  /usr/local/bin/igv.sh -g "$INT_GENOME" "$INT_ANNOT"
+EOF
