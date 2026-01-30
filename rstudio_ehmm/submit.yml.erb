@@ -4,6 +4,7 @@ batch_connect:
 script:
   copy_environment: no
   native:
+    - "--job-name=ood_rstudio_ehmm"
     - "--cpus-per-task=<%= custom_cpus %>"
     - "--mem=<%= memory %>G"
     - "--time=<%= bc_num_hours %>:00:00"  

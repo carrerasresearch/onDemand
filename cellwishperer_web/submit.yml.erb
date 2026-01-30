@@ -14,6 +14,7 @@ batch_connect:
 script:
   copy_environment: no
   native:
+    - "--job-name=ood_cellwishperer_web"
     - "--cpus-per-task=<%= num_cores %>"
     - "--mem=<%= memory %>G"
     - "--time=<%= bc_num_hours %>:00:00"

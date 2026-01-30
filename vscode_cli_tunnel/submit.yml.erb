@@ -3,9 +3,9 @@ batch_connect:
 script:
   copy_environment: no
   native:
+    - "--job-name=ood_vscode_cli_tunnel"
     - "--mem=<%= memory %>G"
     - "--time=<%= bc_num_hours %>:00:00"
     - "-N 1"
     - "-n <%= bc_num_slots.to_i %>"
     - "--partition=test"  
-    - "-J vscodectli"
