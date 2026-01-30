@@ -10,12 +10,6 @@ batch_connect:
   # We use the basic web server template for generating the job script
   template: "basic"
 
-#
-# Configure the job script submission parameters for the batch job here
-#
-## < % if node_type == 'yes' %>
-#    - "--gres=gpu:1"
-# < % end %>
 
 script:
   copy_environment: no
@@ -24,3 +18,7 @@ script:
     - "--mem=<%= memory %>G"
     - "--time=<%= bc_num_hours %>:00:00"
     - "--partition=<%= use_gpu %>"
+<% if use_gpu == 'test-gpu' %>
+    - "--gres=gpu:1"
+<% end %>
+
