@@ -13,9 +13,9 @@ attributes:
   memory:
     widget: number_field
     max: 200
-    min: 1
+    min: 16
     step: 1
-    value: 3
+    value: 16
     label: Memory (Gb)
     help: RSS Memory
     display: true
@@ -23,14 +23,14 @@ attributes:
     label: Use GPU
     widget: select
     options:
-      - [ false, test, data-max-num-cores: 16, data-set-bc-queue: test ]
+      - [ false, test2, data-max-num-cores: 16, data-set-bc-queue: test ]
       - [ true, test-gpu, data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
   num_cores:
     label: Number of CPUs
     widget: number_field
-    value: 1
+    value: 4
     max: 16
-    min: 1
+    min: 4
     help: Specify the number of CPUs to request. GPU nodes have a CPU limit of 4.
     display: true
   bc_queue:

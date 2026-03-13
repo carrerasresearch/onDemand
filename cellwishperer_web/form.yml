@@ -26,7 +26,7 @@ attributes:
     widget: select
     display: true
     options:
-      - [ false, test, data-max-num-cores: 16, data-set-bc-queue: test ]
+      - [ false, test2, data-max-num-cores: 16, data-set-bc-queue: test ]
       - [ true, test-gpu, data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
   num_cores:
     label: Number of CPUs

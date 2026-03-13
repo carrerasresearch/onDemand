@@ -1,0 +1,45 @@
+Bootstrap: docker
+From: nvidia/cuda:11.6.2-cudnn8-runtime-ubuntu20.04
+
+%files
+    ./cellranger-9.0.1.tar /opt/cellranger-9.0.1.tar
+    ./cellranger-arc-2.0.2.tar /opt/cellranger-arc-2.0.2.tar
+
+%post
+    # Prevent interactive prompts (Fixes the tzdata hang)
+    export DEBIAN_FRONTEND=noninteractive
+    export TZ=Etc/UTC	
+	
+    # System Dependencies
+    apt-get update && apt-get install -y wget bzip2 ca-certificates libglib2.0-0 git curl
+   
+    # Extract CellRanger inside the container
+    # Using -m to avoid permission/timestamp issues during build
+    cd /opt
+    tar -xmf cellranger-9.0.1.tar
+    tar -xmf cellranger-arc-2.0.2.tar
+    rm cellranger-9.0.1.tar cellranger-arc-2.0.2.tar    
+ 
+    # Install Conda
+    wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O /tmp/miniforge.sh
+    bash /tmp/miniforge.sh -b -p /opt/conda
+    rm /tmp/miniforge.sh
+    export PATH="/opt/conda/bin:$PATH"
+
+    # Create the jlab-env environment
+    # Pinning python to 3.10 for better compatibility with Torch 1.12
+    conda create -n jlab-env -y python=3.10 jupyterlab=4.4.7
+    
+    # Install PyTorch compatible with your Host Driver (510.47 / CUDA 11.6)
+    /opt/conda/envs/jlab-env/bin/pip install numpy==1.26.4 torch==1.12.1+cu116 torchvision==0.13.1+cu116 --extra-index-url https://download.pytorch.org/whl/cu116
+
+
+%environment
+    export PATH="/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/envs/jlab-env/bin:/opt/conda/bin:$PATH"
+    export CONDA_DEFAULT_ENV="jlab-env"
+
+%runscript
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate jlab-env
+    exec "$@"
+
