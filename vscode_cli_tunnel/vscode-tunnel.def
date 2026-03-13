@@ -1,0 +1,81 @@
+Bootstrap: docker
+From: ubuntu:24.04
+
+%post
+    # Install dependencies and tools
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        curl wget tar git openssh-client libfuse2 libstdc++6 ca-certificates fuse3 gnupg procps build-essential \
+        libmunge-dev libssl-dev libncurses-dev python3 libcurl4-openssl-dev make gcc libhwloc-dev libreadline-dev libpam-dev pkg-config
+	
+    # -----------------------------------------------------------
+    # Descarga y Compilación de Slurm Cliente
+    # -----------------------------------------------------------
+    SLURM_VERSION="20.11.9"
+    SLURM_DIR="slurm-${SLURM_VERSION}"
+
+    # Add user slurm
+    groupadd -r slurm || true
+    useradd -r -g slurm -s /bin/bash slurm || true 
+
+    echo "Descargando código fuente de Slurm ${SLURM_VERSION}..."
+    # Usamos la URL verificada con la versión 20.11.8 para coincidencia exacta con el host.
+    wget -q "https://download.schedmd.com/slurm/slurm-${SLURM_VERSION}.tar.bz2" -O /tmp/slurm.tar.bz2
+
+    mkdir -p /opt/${SLURM_DIR}
+    tar -xf /tmp/slurm.tar.bz2 -C /opt/${SLURM_DIR} --strip-components 1
+    rm /tmp/slurm.tar.bz2
+
+    cd /opt/${SLURM_DIR}
+
+    # Configuración de la compilación: solo necesitamos los clientes (no los demonios como slurmctld o slurmd)
+    echo "Configurando la compilación solo para clientes..."
+    ./configure \
+       --prefix=/usr \
+       --sysconfdir=/etc/slurm \
+       --without-munge-include \
+       --without-munge-lib
+
+    # Compilación: "make" compila todos los componentes
+    echo "Compilando Slurm..."
+    make -j$(nproc)
+
+    # Instalación: Solo instalamos los binarios del cliente (sbatch, srun, squeue, etc.)
+    echo "Instalando los binarios del cliente en /usr/bin..."
+    make install
+    
+    # -----------------------------------------------------------
+    # Limpieza Final y Comprobación
+    # -----------------------------------------------------------
+    cd /
+    rm -rf /opt/${SLURM_DIR}
+    # Solo purgamos los paquetes de compilación temporales
+    apt-get purge -y build-essential wget make gcc
+    apt-get autoremove -y
+    apt-get clean
+
+    # DOWNLOAD THE VS CODE CLI
+    export VSCODE_CLI_TAR="vscode_cli.tar.gz"
+    curl -Lk 'https://update.code.visualstudio.com/latest/cli-linux-x64/stable' --output $VSCODE_CLI_TAR
+
+    # EXTRACT the code executable directly into the root directory (/)
+    # The container build process is usually writable at the root during %post
+    tar -xzf $VSCODE_CLI_TAR -C /
+    
+    # VERIFY AND MOVE (The code executable will be at /code)
+    mkdir -p /usr/container/bin
+    mv /code /usr/container/bin/code
+    chmod +x /usr/container/bin/code
+
+    #  Clean up
+    rm $VSCODE_CLI_TAR
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%environment
+    export PATH=/usr/container/bin:$PATH
+    export PATH=/usr/local/bin:$PATH
+    
+%runscript
+    # The PATH is set, but use the full path just in case
+    /usr/container/bin/code tunnel "$@"
