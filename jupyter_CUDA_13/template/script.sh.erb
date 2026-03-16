@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+
+# Benchmark info
+echo "TIMING - Starting jupyter at: $(date)"
+
+# Load the required environment
+setup_env () {
+  export JUPYTERLAB_IMAGE="/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif"
+  echo "hostname: $(hostname)"
+  
+  module purge
+  module load singularity
+  # We need a python to generate the secure cookie key
+  module load Python/3.8.5-GCCcore-11.2.0
+
+  <% if context.use_gpu == 'test-gpu' %>
+  # Load the CUDA module only when GPU is requested in the form
+  module load CUDA/12.3.1
+  <% end %>
+}
+
+setup_env
+
+# Setup workspace
+workdir="${HOME}/jupyterlab_ood"
+mkdir -p -m 700 "$workdir/run" "$workdir/tmp" "$workdir/R/user-libs"
+# Create a specific folder for container-based python libraries
+mkdir -p -m 700 "$workdir/python-libs"
+# Create a specific folder for container-based conda environments
+mkdir -p -m 700 "$workdir/conda-envs"
+# Create a specific folder for jupyter-data
+mkdir -p -m 700 "$workdir/jupyter-data"
+# Fake the Home directory so config files go to workdir/tmp-home
+mkdir -p "${workdir}/tmp-home"
+# Create specific hidden folders in your workdir to catch config files
+mkdir -p "${workdir}/dot-local"
+mkdir -p "${workdir}/dot-jupyter"
+mkdir -p "${workdir}/dot-cache"
+mkdir -p "${workdir}/dot-conda"
+
+# Prevent host .condarc interference by creating a blank one in the isolated dot-conda
+touch "${workdir}/dot-conda/condarc"
+
+# This asks the container's python for its version string (e.g., 3.10)
+PY_VER=$(singularity exec "${JUPYTERLAB_IMAGE}" python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+
+# Now the path is dynamic
+python_site_packages="${workdir}/python-libs/lib/python${PY_VER}/site-packages"
+# Ensure the FULL python site-packages path exists so PYTHONPATH doesn't point to a void
+mkdir -p -m 700 "${python_site_packages}"
+
+# --- RESTORE OOD COOKIE LOGIC ---
+export TMPDIR="$(mktemp -d)"
+mkdir -p "$TMPDIR/jupyterlab-server"
+python3 -c 'from uuid import uuid4; print(uuid4())' > "$TMPDIR/jupyterlab-server/secure-cookie-key"
+chmod 0600 "$TMPDIR/jupyterlab-server/secure-cookie-key"
+
+# --- SET ISOLATION VARIABLES ---
+# /opt paths for CellRanger at the beginning
+export SINGULARITYENV_PATH="/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+export SINGULARITYENV_PREPEND_PATH="/opt/conda/bin"
+# Mask host .condarc and bind OOD's config/run dirs
+export SINGULARITY_BINDPATH="/ijc:/ijc,${workdir}/run:/run"
+export SINGULARITYENV_PYTHONPATH=""
+
+# Launch info
+echo "Starting up JupyterLab server..."
+
+SINGULARITY_GPU_FLAG=""
+<% if context.use_gpu == 'test-gpu' %>
+SINGULARITY_GPU_FLAG="--nv"
+<% end %>
+
+# --- LAUNCH COMMAND ---
+export SINGULARITYENV_LC_ALL=C.UTF-8
+export SINGULARITYENV_LANG=C.UTF-8
+
+#  --env PYTHONPATH="${python_site_packages}" \
+
+set -x
+singularity exec ${SINGULARITY_GPU_FLAG} --cleanenv \
+  -B "${workdir}:${workdir}" \
+  -B "${workdir}/dot-local:${HOME}/.local" \
+  -B "${workdir}/dot-jupyter:${HOME}/.jupyter" \
+  -B "${workdir}/dot-cache:${HOME}/.cache" \
+  -B "${workdir}/dot-conda:${HOME}/.conda" \
+  -B "${workdir}/dot-conda/condarc:${HOME}/.condarc" \
+  --env R_LIBS_USER="${workdir}/R/user-libs" \
+  --env PYTHONUSERBASE="${workdir}/python-libs" \
+  --env CONDA_ENVS_PATH="/opt/conda/envs,${workdir}/conda-envs" \
+  --env JUPYTER_DATA_DIR="${workdir}/jupyter-data" \
+  --env SHELL="/bin/bash" \
+  "${JUPYTERLAB_IMAGE}" \
+  /bin/bash --norc -c "
+    source /opt/conda/etc/profile.d/conda.sh && \
+    conda activate jlab-env && \
+    jupyter lab --no-browser \
+      --ip=0.0.0.0 \
+      --port=${port} \
+      --notebook-dir='${HOME}' \
+      --config='${CONFIG_FILE}' \
+      --ContentsManager.allow_hidden=True
+  "
+
+echo 'Singularity has exited...'

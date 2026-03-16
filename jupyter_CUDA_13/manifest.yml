@@ -1,0 +1,8 @@
+---
+name: Jupyter CUDA 13
+category: Interactive Apps
+subcategory: Servers
+role: batch_connect
+host: false  
+description: |
+  This app will launch a Jupyter Notebook server with CUDA 13.
