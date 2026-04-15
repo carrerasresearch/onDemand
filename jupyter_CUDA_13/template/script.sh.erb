@@ -32,6 +32,7 @@ mkdir -p -m 700 "$workdir/conda-envs"
 mkdir -p -m 700 "$workdir/jupyter-data"
 # Fake the Home directory so config files go to workdir/tmp-home
 mkdir -p "${workdir}/tmp-home"
+rm -rf "${workdir}/tmp-home"
 # Create specific hidden folders in your workdir to catch config files
 mkdir -p "${workdir}/dot-local"
 mkdir -p "${workdir}/dot-jupyter"
@@ -80,7 +81,7 @@ export SINGULARITYENV_LANG=C.UTF-8
 
 set -x
 singularity exec ${SINGULARITY_GPU_FLAG} --cleanenv \
-  -B "/tmp:/tmp" \
+  -B "${workdir}/tmp-home:/tmp" \
   -B "${workdir}:${workdir}" \
   -B "${workdir}/dot-local:${HOME}/.local" \
   -B "${workdir}/dot-jupyter:${HOME}/.jupyter" \
