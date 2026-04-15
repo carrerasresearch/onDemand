@@ -31,8 +31,8 @@ mkdir -p -m 700 "$workdir/conda-envs"
 # Create a specific folder for jupyter-data
 mkdir -p -m 700 "$workdir/jupyter-data"
 # Fake the Home directory so config files go to workdir/tmp-home
-mkdir -p "${workdir}/tmp-home"
 rm -rf "${workdir}/tmp-home"
+mkdir -p "${workdir}/tmp-home"
 # Create specific hidden folders in your workdir to catch config files
 mkdir -p "${workdir}/dot-local"
 mkdir -p "${workdir}/dot-jupyter"
