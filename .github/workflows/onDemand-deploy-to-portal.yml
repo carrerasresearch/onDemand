@@ -1,7 +1,7 @@
 name: Update OOD Portal in Kubernetes
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch:
 
 jobs:
