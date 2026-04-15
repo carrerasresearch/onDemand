@@ -80,6 +80,7 @@ export SINGULARITYENV_LANG=C.UTF-8
 
 set -x
 singularity exec ${SINGULARITY_GPU_FLAG} --cleanenv \
+  -B "/tmp:/tmp" \
   -B "${workdir}:${workdir}" \
   -B "${workdir}/dot-local:${HOME}/.local" \
   -B "${workdir}/dot-jupyter:${HOME}/.jupyter" \
