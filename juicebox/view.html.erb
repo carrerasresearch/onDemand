@@ -1,0 +1,21 @@
+<%-
+  base_url = "/rnode/#{host}/#{port}/#{password}"
+-%>
+<p>
+  Juicebox runs in your browser. This session shares
+  <code><%= ERB::Util.html_escape(data_dir) %></code> with it, read-only.
+</p>
+
+<a href="<%= base_url %>/ood/files.html" class="btn btn-primary" target="_blank">
+  <i class="fas fa-folder-open"></i> Browse files
+</a>
+<a href="<%= base_url %>/" class="btn btn-outline-primary" target="_blank">
+  <i class="fas fa-th"></i> Open Juicebox
+</a>
+
+<p class="small text-muted mt-2">
+  Use <em>Browse files</em> to open a <code>.hic</code> map directly, or to copy the URL of a
+  track or second map for Juicebox's <em>Load ... &gt; URL</em> menus. Links only work while
+  this session is running, and anyone you send one to can read the shared directory until
+  the session ends.
+</p>

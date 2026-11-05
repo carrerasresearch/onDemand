@@ -1,0 +1,9 @@
+---
+name: Juicebox
+description: |
+  Juicebox Web (Aiden Lab) for exploring Hi-C contact maps (.hic) and tracks stored on the cluster.
+  The viewer runs in your browser; the job serves the app and one data directory (read-only) to it.
+category: Interactive Apps
+subcategory: Genomics
+role: batch_connect
+icon: fa://th
