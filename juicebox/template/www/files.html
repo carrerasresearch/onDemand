@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<!--
+  File browser for the OnDemand Juicebox app.
+
+  Served at /<secret>/ood/files.html next to the Juicebox app (/<secret>/) and
+  the user's data directory (/<secret>/data/, see script.sh.erb). It reads
+  Caddy's JSON directory listings and links .hic files into Juicebox with
+  ?hicUrl=..., which juicebox.js reads on startup. All URLs are relative, so it
+  works behind OOD's /rnode/<host>/<port>/ proxy.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Juicebox - files</title>
+<style>
+  :root {
+    --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --bg-alt: #f6f8fa;
+    --accent: #0969da; --accent-fg: #fff; --hic: #fff8c5; --ok: #1a7f37; --err: #cf222e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; color: var(--fg); background: #fff;
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    padding: .75rem 1.25rem; border-bottom: 1px solid var(--border); background: var(--bg-alt);
+  }
+  header h1 { font-size: 1.1rem; margin: 0; }
+  header .root { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; }
+  header .spacer { flex: 1; }
+  main { padding: 1rem 1.25rem 2rem; max-width: 1200px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .btn {
+    display: inline-block; padding: .2rem .6rem; border: 1px solid var(--border); border-radius: 6px;
+    background: #fff; color: var(--fg); font: inherit; font-size: .85rem; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--bg-alt); text-decoration: none; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .btn.primary:hover { filter: brightness(0.95); }
+  .btn.copied { color: var(--ok); border-color: var(--ok); }
+  nav.crumbs { margin-bottom: .75rem; font-size: 1rem; word-break: break-all; }
+  nav.crumbs .sep { color: var(--muted); margin: 0 .25rem; }
+  .toolbar { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
+  .toolbar input[type=search] {
+    padding: .3rem .5rem; border: 1px solid var(--border); border-radius: 6px; font: inherit; min-width: 16rem;
+  }
+  .toolbar label { color: var(--muted); user-select: none; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; }
+  td.name { word-break: break-all; }
+  td.size, td.mtime { color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.size { text-align: right; }
+  th.size { text-align: right; }
+  td.actions { white-space: nowrap; text-align: right; }
+  td.actions .btn + .btn { margin-left: .35rem; }
+  tr.hic { background: var(--hic); }
+  .icon { display: inline-block; width: 1.4em; color: var(--muted); }
+  .status { color: var(--muted); margin: 1rem 0; }
+  .status.error { color: var(--err); }
+  details.help { margin-top: 1.5rem; color: var(--muted); }
+  details.help summary { cursor: pointer; }
+  details.help li { margin: .25rem 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Juicebox files</h1>
+  <span class="root" id="root-path"></span>
+  <span class="spacer"></span>
+  <a class="btn" href="../" target="_blank" rel="noopener">Open Juicebox (no map)</a>
+</header>
+
+<main>
+  <nav class="crumbs" id="crumbs" aria-label="Folder"></nav>
+
+  <div class="toolbar">
+    <input type="search" id="filter" placeholder="Filter this folder..." aria-label="Filter this folder">
+    <label><input type="checkbox" id="all-files"> Show all files</label>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Name</th><th class="size">Size</th><th>Modified</th><th></th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p class="status" id="status" role="status"></p>
+
+  <details class="help">
+    <summary>How to use</summary>
+    <ul>
+      <li><strong>Open</strong> on a <code>.hic</code> file starts Juicebox with that contact map in a new tab.</li>
+      <li>To add <strong>tracks or 2D annotations</strong> (bigWig, BED, BEDPE, ...) or a
+          <strong>second map</strong>, click <strong>Copy URL</strong> here, then in Juicebox use
+          <em>Load Tracks</em> / <em>Load Contact Map</em> &rsaquo; <em>URL</em> and paste it.</li>
+      <li>Files are shared read-only, and only while this OnDemand session is running. Saved
+          Juicebox sessions and share links that point here stop working when it ends.</li>
+      <li>Anyone you send one of these links to can read this folder until the session ends.</li>
+    </ul>
+  </details>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  const DATA_ROOT = new URL('../data/', location.href);   // /<secret>/data/
+  const APP = new URL('../', location.href);              // /<secret>/
+
+  // File types Juicebox can load: contact maps, tracks and 2D annotations.
+  const HIC_EXT = ['.hic'];
+  const TRACK_EXT = [
+    '.bw', '.bigwig', '.bb', '.bigbed', '.wig',
+    '.bed', '.bedgraph', '.bg', '.bedpe', '.narrowpeak', '.broadpeak',
+    '.gff', '.gff3', '.gtf',
+  ].flatMap(e => [e, e + '.gz']);
+
+  const $ = id => document.getElementById(id);
+  const rowsEl = $('rows'), statusEl = $('status'), crumbsEl = $('crumbs');
+  const filterEl = $('filter'), allEl = $('all-files');
+
+  let items = [];
+  let dirUrl = DATA_ROOT;
+
+  const lower = s => s.toLowerCase();
+  const isHic = name => HIC_EXT.some(e => lower(name).endsWith(e));
+  const isTrack = name => TRACK_EXT.some(e => lower(name).endsWith(e));
+
+  function el(tag, props = {}, ...children) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') e.className = v; else if (k in e) e[k] = v; else e.setAttribute(k, v);
+    }
+    for (const c of children) e.append(c);
+    return e;
+  }
+
+  function humanSize(n) {
+    if (!Number.isFinite(n)) return '';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + ' ' + u[i];
+  }
+
+  function humanTime(s) {
+    const d = new Date(s);
+    return isNaN(d) ? '' : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  // The folder lives in the hash as a path relative to DATA_ROOT, kept in its
+  // percent-encoded form, e.g. #project%201/maps/
+  function dirFromHash() {
+    let rel = location.hash.replace(/^#/, '');
+    if (rel && !rel.endsWith('/')) rel += '/';
+    let u;
+    try { u = new URL(rel, DATA_ROOT); } catch { u = DATA_ROOT; }
+    // Never leave the data root
+    return u.href.startsWith(DATA_ROOT.href) ? u : DATA_ROOT;
+  }
+
+  function relOf(u) { return u.href.slice(DATA_ROOT.href.length); }
+
+  function renderCrumbs() {
+    crumbsEl.replaceChildren();
+    const parts = relOf(dirUrl).split('/').filter(Boolean);
+    crumbsEl.append(el('a', { href: '#', textContent: 'data' }));
+    let acc = '';
+    for (const p of parts) {
+      acc += p + '/';
+      crumbsEl.append(el('span', { class: 'sep', textContent: '/' }));
+      crumbsEl.append(el('a', { href: '#' + acc, textContent: decodeURIComponent(p) }));
+    }
+  }
+
+  async function copy(text, btn) {
+    try {
+      await navigator.clipboard.writeText(text);
+      const old = btn.textContent;
+      btn.textContent = 'Copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = old; btn.classList.remove('copied'); }, 1500);
+    } catch {
+      window.prompt('Copy this URL:', text);
+    }
+  }
+
+  function juiceboxLink(fileUrl, name) {
+    return new URL('?hicUrl=' + encodeURIComponent(fileUrl) + '&name=' + encodeURIComponent(name), APP).href;
+  }
+
+  function renderRows() {
+    const q = lower(filterEl.value.trim());
+    const showAll = allEl.checked;
+    const visible = items.filter(it =>
+      (!q || lower(it.name).includes(q)) &&
+      (showAll || it.is_dir || isHic(it.name) || isTrack(it.name)));
+
+    rowsEl.replaceChildren();
+    for (const it of visible) {
+      const url = new URL(it.url, dirUrl).href;
+      const tr = el('tr');
+      const actions = el('td', { class: 'actions' });
+
+      if (it.is_dir) {
+        // Caddy already ends directory names and URLs with '/'
+        const dirName = it.name.replace(/\/+$/, '') + '/';
+        tr.append(el('td', { class: 'name' },
+          el('span', { class: 'icon', textContent: '\u{1F4C1}' }),
+          el('a', { href: '#' + relOf(new URL(url.endsWith('/') ? url : url + '/')), textContent: dirName })));
+      } else {
+        const hic = isHic(it.name);
+        if (hic) tr.className = 'hic';
+        tr.append(el('td', { class: 'name' },
+          el('span', { class: 'icon', textContent: hic ? '▦' : '\u{1F4C4}' }),
+          el('span', { textContent: it.name })));
+        if (hic) {
+          actions.append(el('a', {
+            class: 'btn primary', href: juiceboxLink(url, it.name), target: '_blank', rel: 'noopener',
+            textContent: 'Open', title: 'Open this contact map in Juicebox (new tab)',
+          }));
+        }
+        const btn = el('button', { class: 'btn', type: 'button', textContent: 'Copy URL',
+          title: 'Copy a URL for Juicebox’s Load › URL menus' });
+        btn.addEventListener('click', () => copy(url, btn));
+        actions.append(btn);
+      }
+      tr.append(
+        el('td', { class: 'size', textContent: it.is_dir ? '' : humanSize(it.size) }),
+        el('td', { class: 'mtime', textContent: humanTime(it.mod_time) }),
+        actions);
+      rowsEl.append(tr);
+    }
+
+    const hidden = items.length - visible.length;
+    if (!items.length) {
+      setStatus('This folder is empty.');
+    } else if (!visible.length) {
+      setStatus('Nothing matches.' + (showAll ? '' : ' Tick "Show all files" to see other file types.'));
+    } else if (hidden && !showAll && !q) {
+      setStatus(hidden + ' other file' + (hidden === 1 ? '' : 's') + ' hidden.');
+    } else {
+      setStatus('');
+    }
+  }
+
+  function setStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.classList.toggle('error', isError);
+  }
+
+  async function load() {
+    dirUrl = dirFromHash();
+    renderCrumbs();
+    rowsEl.replaceChildren();
+    setStatus('Loading...');
+    try {
+      const r = await fetch(dirUrl, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      if (!r.ok) throw new Error(r.status === 404 ? 'Folder not found.' : 'HTTP ' + r.status);
+      const list = await r.json();
+      items = (Array.isArray(list) ? list : []).sort((a, b) =>
+        (b.is_dir - a.is_dir) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+      renderRows();
+    } catch (e) {
+      items = [];
+      setStatus('Could not list this folder: ' + e.message +
+        ' If the OnDemand session has ended, start a new one.', true);
+    }
+  }
+
+  fetch('session.json', { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : {})
+    .then(s => { if (s.data_dir) $('root-path').textContent = s.data_dir; })
+    .catch(() => {});
+
+  filterEl.addEventListener('input', renderRows);
+  allEl.addEventListener('change', renderRows);
+  window.addEventListener('hashchange', () => { filterEl.value = ''; load(); });
+  load();
+})();
+</script>
+</body>
+</html>

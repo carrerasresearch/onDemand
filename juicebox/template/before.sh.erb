@@ -1,0 +1,43 @@
+<%- require 'shellwords' -%>
+# This script (`before.sh.erb`) is sourced directly into the main Bash script
+# that is run when the batch job starts up, before `script.sh` is forked off.
+#
+# We MUST supply $port (and $password) so OnDemand can connect back; $host is
+# already defined. $data_dir is added to connection.yml via submit.yml.erb.
+
+# Export the module function if it exists
+[[ $(type -t module) == "function" ]] && export -f module
+
+# Find available port to run server on
+export port=$(find_port)
+
+# Per-session secret. Caddy serves everything under /<password>/ and answers
+# 404 to anything else: OOD lets any logged-in user reach /rnode/<host>/<port>/,
+# and the port is reachable from the cluster network, so without this anyone
+# could read this user's data directory while the job runs.
+export password="$(create_passwd 32)"
+
+# Directory served (read-only) to the browser. Defaults to $HOME.
+data_dir=<%= Shellwords.escape(context.data_dir.to_s.strip) %>
+data_dir="${data_dir:-$HOME}"
+case "$data_dir" in
+  "~")    data_dir="$HOME" ;;
+  "~/"*)  data_dir="${HOME}/${data_dir#\~/}" ;;
+esac
+
+if [[ ! -d "$data_dir" || ! -r "$data_dir" || ! -x "$data_dir" ]]; then
+  echo "ERROR: data directory '${data_dir}' does not exist or is not readable by $(whoami)." >&2
+  exit 1
+fi
+# Resolve symlinks so the Singularity bind mount points at the real location
+data_dir="$(readlink -f "$data_dir")"
+
+# The path ends up in a Caddyfile, a JSON file and connection.yml (unquoted
+# YAML). Reject the few characters that would break any of them.
+bad_chars='[[:cntrl:]"\`{}]'
+if [[ "$data_dir" =~ $bad_chars || "$data_dir" == *": "* || "$data_dir" == *" #"* ]]; then
+  echo "ERROR: data directory '${data_dir}' contains unsupported characters" >&2
+  echo "       (one of: \" \\ \` { } or the sequences ': ' / ' #'). Please choose another directory." >&2
+  exit 1
+fi
+export data_dir

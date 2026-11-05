@@ -1,0 +1,70 @@
+# Juicebox Web (aidenlab/juicebox-web) + Caddy, for the OnDemand "Juicebox" app.
+#
+# Build:  apptainer build --fakeroot juicebox_web_v1.sif juicebox_web.def
+# Deploy: cp juicebox_web_v1.sif /ijc/PUBLIC/DATA/images/
+#
+# The image is just a static web app and a static file server: all rendering
+# happens in the user's browser. The OOD app (template/script.sh.erb) generates
+# the Caddyfile at job start and runs `caddy run` inside this image.
+
+# ---------------------------------------------------------------------------
+# Stage 1: build the static web app
+# ---------------------------------------------------------------------------
+Bootstrap: docker
+# Node 24 is required: npm 10 (Node 22) cannot resolve juicebox-web's dependency tree.
+From: node:24-bookworm-slim
+Stage: build
+
+%post
+    set -eu
+    export DEBIAN_FRONTEND=noninteractive
+    # git is needed for juicebox-web's github: dependencies (igv-utils, infinite-table)
+    apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+
+    JUICEBOX_WEB_VERSION=v2.9.0
+    git clone --depth 1 --branch "${JUICEBOX_WEB_VERSION}" \
+        https://github.com/aidenlab/juicebox-web.git /build/juicebox-web
+    cd /build/juicebox-web
+
+    # Disable the Share button's URL shortener. It POSTs the session URL to
+    # aidenlab's Cloudflare worker, and here that URL contains our OOD hostname,
+    # the compute node, port, per-session token and file paths. Without an
+    # endpoint the app hands back the long URL and makes no request.
+    sed -i "/endpoint: 'https:\/\/juicebox.aidenlab.org\/shorten',/d" js/juiceboxConfig.js
+    if grep -q "juicebox.aidenlab.org/shorten" js/juiceboxConfig.js; then
+        echo "ERROR: failed to remove URL shortener endpoint" >&2
+        exit 1
+    fi
+
+    npm ci --no-audit --no-fund
+    npm run build
+    test -f dist/index.html
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime = Caddy + the built app
+# ---------------------------------------------------------------------------
+Bootstrap: docker
+From: caddy:2.11.8-alpine
+Stage: final
+
+%files from build
+    /build/juicebox-web/dist /opt/juicebox
+
+%post
+    chmod -R a+rX /opt/juicebox
+
+%environment
+    # The caddy base image keeps its state in /data and /config, which are
+    # read-only under Singularity. /tmp is private to the job's container
+    # (script.sh.erb runs it with --containall).
+    export XDG_DATA_HOME=/tmp/caddy/data
+    export XDG_CONFIG_HOME=/tmp/caddy/config
+
+%labels
+    Description Juicebox Web (aidenlab/juicebox-web v2.9.0) served by Caddy 2.11.8
+    JuiceboxWebVersion v2.9.0
+    CaddyVersion 2.11.8
+
+%help
+    Static Juicebox Web app in /opt/juicebox, plus the caddy binary.
+    Used by the OnDemand "Juicebox" interactive app; see juicebox/template/script.sh.erb.

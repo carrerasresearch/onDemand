@@ -1,0 +1,17 @@
+---
+batch_connect:
+  template: "basic"
+  # Extra values written to connection.yml so view.html.erb can show them
+  conn_params:
+    - data_dir
+
+# Juicebox renders in the user's browser; the job only runs a static file
+# server, so it needs very little.
+script:
+  copy_environment: no
+  native:
+    - "--job-name=ood_juicebox"
+    - "--cpus-per-task=1"
+    - "--mem=2G"
+    - "--time=<%= bc_num_hours %>:00:00"
+    - "--partition=test2"

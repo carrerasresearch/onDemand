@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+#
+# Juicebox Web for OnDemand.
+#
+# Juicebox is a static web app that renders .hic files in the user's browser,
+# reading them with HTTP range requests. This job runs Caddy (inside the image
+# built from ../juicebox_web.def) to serve, all under the /<password>/ prefix:
+#
+#   /<password>/        the Juicebox Web app           (/opt/juicebox in the image)
+#   /<password>/data/   the user's data directory      (read-only, with JSON listings)
+#   /<password>/ood/    the file browser from www/     (this session directory)
+#
+# OOD reaches it at /rnode/<host>/<port>/..., which strips that prefix.
+# $port, $password and $data_dir come from before.sh.erb.
+
+echo "TIMING - Starting Juicebox at: $(date)"
+
+module purge
+module load singularity || module load apptainer
+
+JUICEBOX_IMAGE="/ijc/PUBLIC/DATA/images/juicebox_web_v1.sif"
+SESSION_DIR="$(readlink -f "$PWD")"
+CADDYFILE="${SESSION_DIR}/Caddyfile"
+
+# Tell the file browser which directory it is showing (display only)
+cat > "${SESSION_DIR}/www/session.json" << EOF
+{"data_dir": "${data_dir}"}
+EOF
+
+# Caddyfile with this session's port, secret prefix and paths. Private, as it
+# contains the session secret.
+(
+umask 077
+cat > "${CADDYFILE}" << EOF
+{
+	# No admin API: it would listen on localhost:2019 and clash with other
+	# users' sessions on the same node.
+	admin off
+	auto_https off
+	persist_config off
+}
+
+http://:${port} {
+	header {
+		# Never send the secret URL to other sites (genome/track servers, CDNs)
+		Referrer-Policy same-origin
+		X-Content-Type-Options nosniff
+		-Server
+	}
+
+	# User data: read-only, directory listings as HTML or JSON (files.html
+	# asks for JSON). Range requests are what Juicebox uses to read .hic files.
+	handle_path /${password}/data/* {
+		root * "${data_dir}"
+		file_server browse
+	}
+
+	# File browser page shipped with this OOD app
+	handle_path /${password}/ood/* {
+		root * "${SESSION_DIR}/www"
+		file_server
+	}
+
+	# Juicebox Web
+	handle_path /${password}/* {
+		root * /opt/juicebox
+		encode zstd gzip
+		file_server
+	}
+
+	# Anything without the session secret
+	handle {
+		respond 404
+	}
+}
+EOF
+)
+
+echo "Serving Juicebox on $(hostname):${port}"
+echo "Data directory (read-only): ${data_dir}"
+
+# --containall: private /tmp and $HOME, clean environment. Only the data
+# directory and this session directory are visible, both read-only. The data
+# directory is bound first so that, if it contains the session directory (the
+# default, $HOME), the session bind is mounted on top of it rather than hidden.
+singularity exec --containall \
+  -B "${data_dir}:${data_dir}:ro" \
+  -B "${SESSION_DIR}:${SESSION_DIR}:ro" \
+  "${JUICEBOX_IMAGE}" \
+  caddy run --config "${CADDYFILE}" --adapter caddyfile
+
+echo "Caddy has exited at: $(date)"
