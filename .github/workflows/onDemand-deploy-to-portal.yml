@@ -3,16 +3,43 @@ on:
   push:
     branches: [ master ]
   workflow_dispatch:
+    inputs:
+      restart_all_puns:
+        description: "Also restart busy users' dashboards (nginx_clean --force), so everyone sees app list/form changes at once"
+        type: boolean
+        default: false
+
+# Publishes this commit's apps in the running production portal without
+# restarting it (set-up: OnDemandDocker deployment.yaml and apps-sync/):
+#   1. ood-apps-ref ConfigMap = this commit (what a later pod restart uses)
+#   2. the apps-sync sidecar switches /var/www/ood/apps/sys to it atomically
+#   3. idle PUNs restart, so dashboards drop their cached app list and forms
+# Interactive sessions are not affected (Apache proxies /rnode directly), and
+# app templates/submit files are read from disk at each launch anyway.
+
+concurrency:
+  group: ood-production-apps
+  cancel-in-progress: false
 
 jobs:
   update:
     runs-on: self-hosted
     steps:
-      - name: Patch APPS_REF and restart OOD portal
+      - name: Set APPS_REF
         run: |
-          kubectl set env deployment/ood-portal \
-            --containers=clone-apps \
-            APPS_REF=${{ github.sha }} \
-            -n production
-          kubectl rollout restart deployment/ood-portal -n production
-          kubectl rollout status  deployment/ood-portal -n production
+          kubectl -n production create configmap ood-apps-ref \
+            --from-literal=APPS_REF=${{ github.sha }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Publish apps in place
+        run: |
+          kubectl -n production exec deploy/ood-portal -c apps-sync -- \
+            sh /opt/apps-sync/ood-sync-apps.sh ${{ github.sha }}
+
+      - name: Restart idle PUNs
+        run: |
+          # Without --force only PUNs with no active connections restart.
+          force=""
+          [ "${{ inputs.restart_all_puns }}" = "true" ] && force="--force"
+          kubectl -n production exec deploy/ood-portal -c ood-container -- \
+            /opt/ood/nginx_stage/sbin/nginx_stage nginx_clean $force
