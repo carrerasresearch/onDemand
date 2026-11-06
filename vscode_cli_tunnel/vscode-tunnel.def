@@ -19,7 +19,10 @@ From: ubuntu:24.04
     useradd -r -g slurm -s /bin/bash slurm || true 
 
     echo "Descargando código fuente de Slurm ${SLURM_VERSION}..."
-    # Usamos la URL verificada con la versión 20.11.8 para coincidencia exacta con el host.
+    # No coincide exactamente con el host (20.11.8): Slurm exige la misma versión
+    # exacta para los plugins, así que template/script.sh.erb quita PluginDir del
+    # slurm.conf del nodo y el cliente usa los plugins de esta build (/usr/lib/slurm).
+    # Cualquier 20.11.x habla el mismo protocolo con el controlador.
     wget -q "https://download.schedmd.com/slurm/slurm-${SLURM_VERSION}.tar.bz2" -O /tmp/slurm.tar.bz2
 
     mkdir -p /opt/${SLURM_DIR}

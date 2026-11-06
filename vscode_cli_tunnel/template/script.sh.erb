@@ -60,6 +60,25 @@ else
 fi
 
 
+# --- SLURM CLIENT CONFIG FOR THE CONTAINER ---
+# The image ships its own Slurm client (vscode-tunnel.def) with its plugins in
+# /usr/lib/slurm. The node's slurm.conf sets PluginDir to the host's Slurm
+# build under /opt, which is visible in the container through the /opt bind,
+# and Slurm only loads plugins built for its exact version — so sbatch in a
+# VS Code terminal failed with "Incompatible Slurm plugin version". Give the
+# container a copy of the node's config without PluginDir so its clients use
+# their own plugins. Jobs submitted from the container are unaffected: slurmd
+# resets SLURM_CONF to the node's config for every job step.
+HOST_SLURM_CONF="${SLURM_CONF:-/etc/slurm/slurm.conf}"
+CONTAINER_SLURM_CONF="${PWD}/slurm.conf"
+if sed -E '/^[[:space:]]*PluginDir[[:space:]]*=/Id' "$HOST_SLURM_CONF" > "$CONTAINER_SLURM_CONF"; then
+    export SINGULARITYENV_SLURM_CONF="$CONTAINER_SLURM_CONF"
+else
+    # Not fatal: the tunnel still works for editing, only Slurm commands in
+    # its terminals are affected.
+    echo "WARNING: Cannot read Slurm config at ${HOST_SLURM_CONF}; sbatch in VS Code terminals may fail."
+fi
+
 # --- LAUNCH TUNNEL SERVICE (Background) ---
 # Launch the main tunnel service in the background (&).
 
