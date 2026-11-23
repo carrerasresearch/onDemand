@@ -318,19 +318,13 @@ class Jupyter:
 
     def detect(self):
         jl = http_json("https://pypi.org/pypi/jupyterlab/json")["info"]["version"]
-        torch = http_json("https://pypi.org/pypi/torch/json")["info"]["version"]
+        torch, tv = self.torch_pair()
         jl_mm, t_mm = tuple(map(int, jl.split(".")[:2])), tuple(map(int, torch.split(".")[:2]))
         have = self.offered()
         log(f"[{self.app}] offers (jupyterlab, torch) {[(f'{a}.{b}', f'{c}.{d}') for a, b, c, d in have]}; "
-            f"latest jupyterlab {jl}, torch {torch}")
+            f"latest jupyterlab {jl}, torch {torch} (torchvision {tv})")
         if any((a, b) >= jl_mm and (c, d) >= t_mm for a, b, c, d in have):
             return []
-        # torchvision 0.N pairs with torch 2.(N-15); check the pin exists.
-        tv_releases = http_json("https://pypi.org/pypi/torchvision/json")["releases"]
-        tv = next((v for v in sorted(tv_releases, key=lambda v: [int(x) for x in re.findall(r"\d+", v)], reverse=True)
-                   if v.startswith(f"0.{t_mm[1] + 15}.") and re.fullmatch(r"[\d.]+", v)), None)
-        if t_mm[0] != 2 or not tv:
-            raise RuntimeError(f"no torchvision release found for torch {torch}")
         key = dt.date.today().strftime("%Y.%m")
         script = (REPO / self.app / "template/script.sh.erb").read_text()
         while f'"{key}" =>' in script:
@@ -339,6 +333,27 @@ class Jupyter:
                         f"jupyter-cellranger_{key}.sif", "jupyter-cellranger.def",
                         {"JUPYTERLAB_VERSION": jl, "TORCH_VERSION": torch, "TORCHVISION_VERSION": tv},
                         f"image {key}: JupyterLab {jl}, PyTorch {torch}, torchvision {tv}, Python 3.12, Cell Ranger 9.0.1")]
+
+    @staticmethod
+    def torch_pair():
+        """Newest PyTorch that has a matching torchvision release.
+
+        torchvision follows torch by days or weeks, so a brand-new torch is
+        used only once its torchvision exists (read from torchvision's own
+        torch requirement, e.g. "torch==2.14.0" or "torch>=2.14.0").
+        """
+        num = lambda v: [int(x) for x in v.split(".")]
+        stable = lambda rels: sorted((v for v in rels if re.fullmatch(r"\d+(\.\d+)+", v)), key=num)
+        tv = stable(http_json("https://pypi.org/pypi/torchvision/json")["releases"])[-1]
+        req = http_json(f"https://pypi.org/pypi/torchvision/{tv}/json")["info"]["requires_dist"] or []
+        m = next((re.search(r"torch\s*(==|>=)\s*(\d+)\.(\d+)", r) for r in req if r.startswith("torch")), None)
+        if not m:
+            raise RuntimeError(f"torchvision {tv} has no torch requirement: {req}")
+        torch_releases = stable(http_json("https://pypi.org/pypi/torch/json")["releases"])
+        same_minor = [v for v in torch_releases if num(v)[:2] == [int(m.group(2)), int(m.group(3))]]
+        if not same_minor:
+            raise RuntimeError(f"no torch {m.group(2)}.{m.group(3)}.x release for torchvision {tv}")
+        return same_minor[-1], tv
 
     def build_context(self):
         """The .def copies the Cell Ranger tarballs from the build directory."""
