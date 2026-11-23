@@ -1,5 +1,6 @@
 cluster: minastirith
 form:
+  - jupyter_image
   - modules
   - extra_jupyter_args
   - bc_num_hours
@@ -8,6 +9,20 @@ form:
   - memory
   - bc_email_on_started
 attributes:
+  # Keys must match the images table in template/script.sh.erb.
+  jupyter_image:
+    label: "Image"
+    widget: "select"
+    # Default stays CUDA 11 so existing users keep their Python packages;
+    # OOD remembers each user's last choice.
+    value: "cuda11"
+    options:
+      - ["CUDA 13 (Python 3.12, JupyterLab 4.5, PyTorch 2.10)", "cuda13"]
+      - ["CUDA 11 (Python 3.10, JupyterLab 4.4, PyTorch 1.12)", "cuda11"]
+    help: |
+      Both include Cell Ranger 9.0.1 and Cell Ranger ARC 2.0.2 and run on CPU
+      or GPU nodes. Python packages you install with pip are kept per Python
+      version, so packages installed under one image are not visible in the other.
   modules: python
   extra_jupyter_args: ""
   memory:

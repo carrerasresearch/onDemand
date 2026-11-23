@@ -5,7 +5,17 @@ echo "TIMING - Starting jupyter at: $(date)"
 
 # Load the required environment
 setup_env () {
-  export JUPYTERLAB_IMAGE="/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif"
+<%-
+  # Image (form.yml jupyter_image) => SIF. cuda11 is the fallback for sessions
+  # saved before the image field existed.
+  images = {
+    "cuda13" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif",
+    "cuda11" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif",
+  }
+  image = images.fetch(context.jupyter_image.to_s, images["cuda11"])
+-%>
+  export JUPYTERLAB_IMAGE="<%= image %>"
+  echo "Image <%= context.jupyter_image %>: ${JUPYTERLAB_IMAGE}"
   echo "hostname: $(hostname)"
   
   module purge
