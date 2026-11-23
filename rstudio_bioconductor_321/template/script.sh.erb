@@ -40,6 +40,9 @@ export RSTUDIO_AUTH="${PWD}/bin/auth"
 # where writable file systems are necessary. 
 workdir="${HOME}/<%= workdir_name %>"
 mkdir -p -m 700 $workdir
+# R ignores R_LIBS_USER when the directory does not exist, and install.packages()
+# then falls back to ~/R/<platform>-library/<R version>: create it up front.
+mkdir -p "${workdir}/R/user-libs"
 
 # Bindings
 export SINGULARITY_BINDPATH="${workdir}/run:/run,${workdir}/database.conf:/etc/rstudio/database.conf,${workdir}/rsession.sh:/etc/rstudio/rsession.sh,${workdir}/var/lib/rstudio-server:/var/lib/rstudio-server,/ijc:/ijc,/opt/ohpc:/opt/ohpc,/opt/software:/opt/software,/usr/local/bin/lua:/usr/local/bin/lua"
@@ -70,7 +73,7 @@ sed 's/^ \{2\}//' > "${RSESSION_WRAPPER_FILE}" << EOL
   # Launch the original command
   echo "Launching rsession..."
   set -x
-  exec /usr/lib/rstudio-server/bin/rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
+  exec /usr/lib/rstudio-server/bin/rsession --r-libs-user "\${R_LIBS_USER}" "\${@}"
 EOL
 )
 chmod 700 "${RSESSION_WRAPPER_FILE}"
