@@ -1,13 +1,9 @@
 # Wait for the Jupyter Notebook server to start
-echo "Waiting for Jupyter Notebook server to open port ${port}..."
 echo "TIMING - Starting wait at: $(date)"
-if wait_until_port_used "${host}:${port}" 60; then
-  echo "Discovered Jupyter Notebook server listening on port ${port}!"
-  echo "TIMING - Wait ended at: $(date)"
-else
-  echo "Timed out waiting for Jupyter Notebook server to open port ${port}!"
-  echo "TIMING - Wait ended at: $(date)"
+# (ood_wait_for_port explains a failure on the session card; see ood_checks.sh)
+if ! ood_wait_for_port "JupyterLab" "${host}" "${port}" 60; then
   pkill -P ${SCRIPT_PID}
   clean_up 1
 fi
+echo "TIMING - Wait ended at: $(date)"
 sleep 2

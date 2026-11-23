@@ -30,6 +30,7 @@ setup_env () {
 }
 
 setup_env
+[[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$JUPYTERLAB_IMAGE"
 
 # Setup workspace
 workdir="${HOME}/jupyterlab_ood"

@@ -8,6 +8,10 @@
 # Export the module function if it exists
 [[ $(type -t module) == "function" ]] && export -f module
 
+# Start-up checks with messages for the session card (ood_checks.sh).
+source ./ood_checks.sh
+ood_check_home
+
 # Find available port to run server on
 export port=$(find_port)
 
@@ -26,8 +30,8 @@ case "$data_dir" in
 esac
 
 if [[ ! -d "$data_dir" || ! -r "$data_dir" || ! -x "$data_dir" ]]; then
-  echo "ERROR: data directory '${data_dir}' does not exist or is not readable by $(whoami)." >&2
-  exit 1
+  ood_fail "The data directory cannot be opened" \
+"\`${data_dir}\` does not exist or is not readable by $(whoami). Check the *Data directory* field in the form (leave it empty to use your home folder) and launch again."
 fi
 # Resolve symlinks so the Singularity bind mount points at the real location
 data_dir="$(readlink -f "$data_dir")"
@@ -36,8 +40,7 @@ data_dir="$(readlink -f "$data_dir")"
 # YAML). Reject the few characters that would break any of them.
 bad_chars='[[:cntrl:]"\`{}]'
 if [[ "$data_dir" =~ $bad_chars || "$data_dir" == *": "* || "$data_dir" == *" #"* ]]; then
-  echo "ERROR: data directory '${data_dir}' contains unsupported characters" >&2
-  echo "       (one of: \" \\ \` { } or the sequences ': ' / ' #'). Please choose another directory." >&2
-  exit 1
+  ood_fail "The data directory name is not supported" \
+"\`${data_dir}\` contains a character Juicebox cannot handle: a double quote, backslash, backtick, curly brace or control character, or the sequences ': ' or ' #'. Rename the folder or choose another one, then launch again."
 fi
 export data_dir

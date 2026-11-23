@@ -6,6 +6,7 @@
 
 # Singularity Image Path
 SINGULARITY_IMAGE="/ijc/PUBLIC/DATA/images/vscode-tunnel.sif"
+[[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$SINGULARITY_IMAGE"
 
 echo "================================================="
 echo "  Launching VS Code Tunnel via Singularity..."

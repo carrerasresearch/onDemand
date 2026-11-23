@@ -33,6 +33,7 @@ setup_env () {
 } 
 
 setup_env
+[[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$RSTUDIO_SERVER_IMAGE"
 
 #
 # Start RStudio Server

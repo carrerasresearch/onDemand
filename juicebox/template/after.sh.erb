@@ -1,13 +1,9 @@
 # Wait for Caddy to start serving Juicebox
-echo "Waiting for Juicebox to open port ${port}..."
 echo "TIMING - Starting wait at: $(date)"
-if wait_until_port_used "${host}:${port}" 120; then
-  echo "Discovered Juicebox listening on port ${port}!"
-  echo "TIMING - Wait ended at: $(date)"
-else
-  echo "Timed out waiting for Juicebox to open port ${port}!"
-  echo "TIMING - Wait ended at: $(date)"
+# (ood_wait_for_port explains a failure on the session card; see ood_checks.sh)
+if ! ood_wait_for_port "Juicebox" "${host}" "${port}" 120; then
   pkill -P ${SCRIPT_PID}
   clean_up 1
 fi
+echo "TIMING - Wait ended at: $(date)"
 sleep 1

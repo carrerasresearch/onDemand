@@ -17,6 +17,7 @@ export HOME="${HOME}"
 
 # Define the container image path
 export CELLWHISPERER_IMAGE="/ijc/PUBLIC/DATA/images/cellwhisperer.sif"
+[[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$CELLWHISPERER_IMAGE"
 
 # Get form values from the context
 export PROCESSED_DATA_PATH="<%= context.processed_dataset_path %>"
