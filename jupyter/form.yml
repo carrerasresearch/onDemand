@@ -23,6 +23,7 @@ attributes:
       Both include Cell Ranger 9.0.1 and Cell Ranger ARC 2.0.2 and run on CPU
       or GPU nodes. Python packages you install with pip are kept per Python
       version, so packages installed under one image are not visible in the other.
+    display: true
   modules: python
   extra_jupyter_args: ""
   memory:
@@ -40,6 +41,7 @@ attributes:
     options:
       - [ false, test2, data-max-num-cores: 16, data-set-bc-queue: test ]
       - [ true, test-gpu, data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
+    display: true
   num_cores:
     label: Number of CPUs
     widget: number_field

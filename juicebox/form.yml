@@ -13,3 +13,4 @@ attributes:
       Folder with your `.hic` maps and track files (bigWig, BED, BEDPE, ...). It is shared
       **read-only** with your browser for this session only. Leave empty to use your home
       directory. Symlinks pointing outside this folder will not be followed.
+    display: true
