@@ -7,7 +7,7 @@ It goes as far as opening a pull request; a maintainer merges it.
 |---|---|---|
 | RStudio (`rstudio_bioconductor_321`) | `bioconductor/tidyverse` `X.Y-R-a.b.c` tags (April/October) | `bioconductor_X.Y.sif` (latest stable RStudio Server), a new entry in the version select |
 | Jupyter Lab (`jupyter`) | JupyterLab and PyTorch minor releases on PyPI (PyTorch only once its torchvision exists) | `jupyter-cellranger_YYYY.MM.sif`, a new entry in the image select |
-| VS Code Tunnel (`vscode_cli_tunnel`) | VS Code stable releases, about quarterly: only once the offered version is 90+ days old, then the newest minor whose last patch is 14+ days old | `vscode-tunnel_<version>.sif`; the app switches to it |
+| VS Code Tunnel (`vscode_cli_tunnel`) | VS Code stable releases, about quarterly: only once the offered version is 90+ days old, then the newest minor whose last patch is 14+ days old | `vscode-tunnel_<version>.sif`, a new entry in the version select |
 
 For each new release it:
 

@@ -6,17 +6,22 @@ echo "TIMING - Starting jupyter at: $(date)"
 # Load the required environment
 setup_env () {
 <%-
-  # Image (form.yml jupyter_image) => SIF. cuda11 is the fallback for sessions
-  # saved before the image field existed.
+  # Image (form.yml jupyter_image, named by build month) => SIF. 2026.02 is
+  # the fallback for sessions saved before the image field existed. New images
+  # are added at the top by .github/release-bot.
   images = {
     "2026.11" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger_2026.11.sif",
-    "cuda13" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif",
-    "cuda11" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif",
+    "2026.02.1" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif",
+    "2026.02" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif",
   }
-  image = images.fetch(context.jupyter_image.to_s, images["cuda11"])
+  # Earlier names of the 2026.02 images.
+  aliases = { "cuda13" => "2026.02.1", "cuda11" => "2026.02" }
+  key = aliases.fetch(context.jupyter_image.to_s, context.jupyter_image.to_s)
+  key = "2026.02" unless images.key?(key)
+  image = images[key]
 -%>
   export JUPYTERLAB_IMAGE="<%= image %>"
-  echo "Image <%= context.jupyter_image %>: ${JUPYTERLAB_IMAGE}"
+  echo "Image <%= key %>: ${JUPYTERLAB_IMAGE}"
   echo "hostname: $(hostname)"
   
   module purge

@@ -282,7 +282,7 @@ class RStudio:
             return []
         rstudio = latest_rstudio()
         r = tag.split("-R-")[1]
-        return [Release(bioc, f"Bioconductor {bioc} (R {'.'.join(r.split('.')[:2])}, RStudio {'.'.join(rstudio.split('.')[:2])})",
+        return [Release(bioc, f"Bioconductor {bioc} (R {r}, RStudio {'.'.join(rstudio.split('.')[:2])})",
                         f"bioconductor_{bioc}.sif", "rstudio_bioconductor.def",
                         {"BIOC_TAG": tag, "RSTUDIO_VERSION": rstudio},
                         f"Bioconductor {bioc} (R {r}, RStudio Server {rstudio})")]
@@ -372,12 +372,17 @@ class Jupyter:
         script = (REPO / self.app / "template/script.sh.erb").read_text()
         while f'"{key}" =>' in script:
             key += ".1"
+        # "with CUDA x.y" is filled in after the build (label_after_build).
         label = (f"{key} (Python 3.12, JupyterLab {'.'.join(map(str, want[0]))}, "
-                 f"PyTorch {'.'.join(map(str, want[1]))}, Cell Ranger {'.'.join(map(str, want[2]))})")
+                 f"PyTorch {'.'.join(map(str, want[1]))} with CUDA ?, Cell Ranger {'.'.join(map(str, want[2]))})")
         return [Release(key, label, f"jupyter-cellranger_{key}.sif", "jupyter-cellranger.def",
                         {"JUPYTERLAB_VERSION": jl, "TORCH_VERSION": torch, "TORCHVISION_VERSION": tv,
                          "CELLRANGER_VERSION": cr_v, "CELLRANGER_ARC_VERSION": arc_v},
                         f"image {key}: JupyterLab {jl}, PyTorch {torch}, Cell Ranger {cr_v} (ARC {arc_v}), Python 3.12")]
+
+    @staticmethod
+    def label_after_build(rel, versions):
+        rel.label = rel.label.replace("with CUDA ?", f"with CUDA {versions.get('torch_cuda', '?')}")
 
     @staticmethod
     def torch_pair():
@@ -493,12 +498,9 @@ pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
 class VSCode:
     app = "vscode_cli_tunnel"
     title = "VS Code Tunnel"
-    line = re.compile(r'^SINGULARITY_IMAGE="[^"]*"$', re.M)
 
     def offered(self):
-        m = re.search(r'^SINGULARITY_IMAGE="[^"]*/vscode-tunnel_([\d.]+)\.sif"$',
-                      (REPO / self.app / "template/script.sh.erb").read_text(), re.M)
-        return [m.group(1)] if m else []   # [] = legacy unversioned image
+        return re.findall(r'^ +"(\d+\.\d+\.\d+)" =>', (REPO / self.app / "template/script.sh.erb").read_text(), re.M)
 
     # VS Code ships a minor release about every week, plus recovery patches.
     # The image only provides the tunnel CLI (the editor installs its own
@@ -531,27 +533,31 @@ class VSCode:
         settled = [max(vs, key=num) for m, vs in minors.items()
                    if (today - max(dates[v] for v in vs)).days >= self.SETTLED_DAYS]
         target = max(settled, key=num)
-        cur = (self.offered() or [None])[0]
+        cur = max(self.offered(), key=num, default=None)
         cur_age = (today - dates[cur]).days if cur in dates else None
-        log(f"[{self.app}] offers {cur or 'unversioned vscode-tunnel.sif'}"
+        log(f"[{self.app}] offers {self.offered()}, newest {cur}"
             f"{f' ({cur_age} days old)' if cur_age is not None else ''}; newest VS Code {max(dates, key=num)}, "
             f"newest settled (>= {self.SETTLED_DAYS} days) {target}")
         if cur and (num(cur) >= num(target) or (cur_age is not None and cur_age < self.MAX_AGE_DAYS)):
             return []
-        return [Release(target, target, f"vscode-tunnel_{target}.sif", "vscode-tunnel.def",
-                        {"VSCODE_VERSION": target}, f"VS Code CLI {target}")]
+        return [Release(target, f"VS Code {target} (Slurm client 20.11)", f"vscode-tunnel_{target}.sif",
+                        "vscode-tunnel.def", {"VSCODE_VERSION": target}, f"VS Code {target}")]
 
     def patch(self, rel):
-        f = REPO / self.app / "template/script.sh.erb"
-        new, n = self.line.subn(f'SINGULARITY_IMAGE="{IMAGES}/{rel.image}"', f.read_text(), count=1)
-        if n != 1:
-            raise RuntimeError("SINGULARITY_IMAGE line not found in script.sh.erb")
-        f.write_text(new)
+        d = REPO / self.app
+        f = d / "form.yml.erb"
+        f.write_text(insert_after(f.read_text(), r"  vscode_version:\n(?:    .*\n)*?    options:\n",
+                                  f'      - ["{rel.label}", "{rel.key}"]\n', "vscode_version options in form.yml.erb"))
+        f = d / "template/script.sh.erb"
+        f.write_text(insert_after(f.read_text(), r"  images = \{\n", f'    "{rel.key}" => "{IMAGES}/{rel.image}",\n',
+                                  "images table in script.sh.erb"))
 
     def poc_test(self, key):
         # The tunnel itself needs an interactive Microsoft login; test the image
         # the POC-served script points at: CLI version, tunnel CLI, Slurm client.
-        script = render_erb(REPO / self.app, poc_file(self.app, "template/script.sh.erb"), {})
+        script = render_erb(REPO / self.app, poc_file(self.app, "template/script.sh.erb"), {"vscode_version": key})
+        if f'echo "Version {key}:' not in script:
+            raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
         image = re.search(r'^SINGULARITY_IMAGE="([^"]+)"$', script, re.M).group(1)
         sbatch = SBATCH_HEAD + f"""module load singularity >/dev/null 2>&1
 echo "image={image}"
@@ -562,8 +568,7 @@ singularity exec {image} /usr/container/bin/code tunnel user show 2>&1 | head -1
 singularity exec --cleanenv {image} sh -c 'test -x /usr/bin/sbatch && echo sbatch=ok; echo "export=$SBATCH_EXPORT"; test -f /etc/profile.d/slurm-export.sh && echo profile=ok' 2>&1 | sed 's/^/slurm: /'
 """
         job, out = poc_job(f"vscode_{key}", {}, sbatch, timeout_min=10)
-        want = re.escape(key) if key != "current" else r"[\d.]+"
-        ok = (re.search(rf"^code: code {want}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
+        ok = (re.search(rf"^code: code {re.escape(key)}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
               and "slurm: sbatch=ok" in out and "slurm: export=NONE" in out and "slurm: profile=ok" in out)
         return bool(ok), job, out
 
@@ -602,6 +607,8 @@ def release(plugin, rel, onto=None):
     sif = STATE / "build" / rel.image
     versions = apptainer_build(sif, REPO / plugin.app / rel.deffile, rel.build_args, ctx)
     log(f"image versions: {versions}")
+    if hasattr(plugin, "label_after_build"):
+        plugin.label_after_build(rel, versions)
     sha = upload(sif, rel.image)
     sif.unlink()
 

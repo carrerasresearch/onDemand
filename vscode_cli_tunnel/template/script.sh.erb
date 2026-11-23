@@ -5,7 +5,18 @@
 # Define the local path where the token should exist
 
 # Singularity Image Path
-SINGULARITY_IMAGE="/ijc/PUBLIC/DATA/images/vscode-tunnel_1.144.0.sif"
+<%-
+  # Version (form.yml vscode_version) => SIF. 1.116.0 is the fallback for
+  # sessions saved before the version field existed. New versions are added at
+  # the top by .github/release-bot.
+  images = {
+    "1.144.0" => "/ijc/PUBLIC/DATA/images/vscode-tunnel_1.144.0.sif",
+    "1.116.0" => "/ijc/PUBLIC/DATA/images/vscode-tunnel.sif",
+  }
+  key = images.key?(context.vscode_version.to_s) ? context.vscode_version.to_s : "1.116.0"
+-%>
+SINGULARITY_IMAGE="<%= images[key] %>"
+echo "Version <%= key %>: ${SINGULARITY_IMAGE}"
 [[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$SINGULARITY_IMAGE"
 
 echo "================================================="

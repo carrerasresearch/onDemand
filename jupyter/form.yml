@@ -13,17 +13,18 @@ attributes:
   jupyter_image:
     label: "Image"
     widget: "select"
-    # Default stays CUDA 11 so existing users keep their Python packages;
+    # Images are named by build month. The default stays 2026.02 (the image
+    # Jupyter Lab always used) so existing users keep their Python packages;
     # OOD remembers each user's last choice.
-    value: "cuda11"
+    value: "2026.02"
     options:
-      - ["2026.11 (Python 3.12, JupyterLab 4.6, PyTorch 2.14, Cell Ranger 10.1)", "2026.11"]
-      - ["CUDA 13 (Python 3.12, JupyterLab 4.5, PyTorch 2.10)", "cuda13"]
-      - ["CUDA 11 (Python 3.10, JupyterLab 4.4, PyTorch 1.12)", "cuda11"]
+      - ["2026.11 (Python 3.12, JupyterLab 4.6, PyTorch 2.14 with CUDA 13.0, Cell Ranger 10.1)", "2026.11"]
+      - ["2026.02.1 (Python 3.12, JupyterLab 4.5, PyTorch 2.10 with CUDA 12.8, Cell Ranger 9.0)", "2026.02.1"]
+      - ["2026.02 (Python 3.10, JupyterLab 4.4, PyTorch 1.12 with CUDA 11.6, Cell Ranger 9.0)", "2026.02"]
     help: |
-      Both include Cell Ranger 9.0.1 and Cell Ranger ARC 2.0.2 and run on CPU
-      or GPU nodes. Python packages you install with pip are kept per Python
-      version, so packages installed under one image are not visible in the other.
+      All images run on CPU or GPU nodes and include Cell Ranger ARC 2.0.2.
+      Python packages you install with pip are kept per Python version, so
+      packages installed under one Python version are not visible in another.
     display: true
   modules: python
   extra_jupyter_args: ""

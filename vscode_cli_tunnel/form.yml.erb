@@ -1,9 +1,25 @@
 cluster: minastirith
 form:
+  - vscode_version
   - bc_num_hours
   - bc_num_slots 
   - memory
 attributes:
+  # Keys must match the images table in template/script.sh.erb.
+  vscode_version:
+    label: "Version"
+    widget: "select"
+    # Default stays 1.116.0 (the image this app always used); OOD remembers
+    # each user's last choice.
+    value: "1.116.0"
+    options:
+      - ["VS Code 1.144.0 (Slurm client 20.11)", "1.144.0"]
+      - ["VS Code 1.116.0 (Slurm client 20.11)", "1.116.0"]
+    help: |
+      The VS Code CLI that runs the tunnel. Your editor installs its own
+      matching server when it connects, so any version works with a recent
+      VS Code; pick the newest unless you have a reason not to.
+    display: true
   bc_num_slots:
     label: "Number of Cores"
     widget: "number_field"
