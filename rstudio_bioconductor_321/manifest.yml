@@ -1,10 +1,9 @@
 ---
-name: Bioconductor
+name: RStudio
 category: Interactive Apps
 subcategory: Servers
 role: batch_connect
 host: false
 description: |
-  RStudio Server with Bioconductor and the tidyverse, or the eHMM
-  environment. Choose the Bioconductor release (and with it the R version)
-  or EHMM in the launch form.
+  RStudio Server. Choose the environment in the launch form: a Bioconductor
+  release with the tidyverse (and with it the R version), or EHMM.

@@ -258,7 +258,7 @@ def insert_after(text, anchor_re, line, what):
 
 class RStudio:
     app = "rstudio_bioconductor_321"
-    title = "Bioconductor"
+    title = "RStudio"
 
     def offered(self):
         return re.findall(r'^ +"(\d+\.\d+)" =>', (REPO / self.app / "template/script.sh.erb").read_text(), re.M)
@@ -278,7 +278,7 @@ class RStudio:
             return []
         rstudio = latest_rstudio()
         r = tag.split("-R-")[1]
-        return [Release(bioc, f"{bioc} (R {'.'.join(r.split('.')[:2])}, RStudio {'.'.join(rstudio.split('.')[:2])})",
+        return [Release(bioc, f"Bioconductor {bioc} (R {'.'.join(r.split('.')[:2])}, RStudio {'.'.join(rstudio.split('.')[:2])})",
                         f"bioconductor_{bioc}.sif", "rstudio_bioconductor.def",
                         {"BIOC_TAG": tag, "RSTUDIO_VERSION": rstudio},
                         f"Bioconductor {bioc} (R {r}, RStudio Server {rstudio})")]

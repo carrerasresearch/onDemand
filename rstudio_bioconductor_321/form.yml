@@ -10,8 +10,8 @@ attributes:
     # it has been announced.
     value: "3.21"
     options:
-      - ["3.23 (R 4.6, RStudio 2026.11)", "3.23"]
-      - ["3.21 (R 4.5.1)", "3.21"]
+      - ["Bioconductor 3.23 (R 4.6, RStudio 2026.11)", "3.23"]
+      - ["Bioconductor 3.21 (R 4.5.1)", "3.21"]
       - ["EHMM (eHMM 1.0, samtools; Bioconductor 3.11, R 4.0)", "ehmm"]
     help: |
       Each version has its own R package library, because packages built for

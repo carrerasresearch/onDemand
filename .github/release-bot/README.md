@@ -5,7 +5,7 @@ It goes as far as opening a pull request; a maintainer merges it.
 
 | App | Watches | Each new release becomes |
 |---|---|---|
-| Bioconductor (`rstudio_bioconductor_321`) | `bioconductor/tidyverse` `X.Y-R-a.b.c` tags (April/October) | `bioconductor_X.Y.sif` (latest stable RStudio Server), a new entry in the version select |
+| RStudio (`rstudio_bioconductor_321`) | `bioconductor/tidyverse` `X.Y-R-a.b.c` tags (April/October) | `bioconductor_X.Y.sif` (latest stable RStudio Server), a new entry in the version select |
 | Jupyter Lab (`jupyter`) | JupyterLab and PyTorch minor releases on PyPI (PyTorch only once its torchvision exists) | `jupyter-cellranger_YYYY.MM.sif`, a new entry in the image select |
 | VS Code Tunnel (`vscode_cli_tunnel`) | VS Code stable releases | `vscode-tunnel_<version>.sif`; the app switches to it |
 
