@@ -45,12 +45,17 @@ if s != 201:
     print("kernel: start failed", s, body[:120])
     sys.exit(0)
 kid = json.loads(body)["id"]
+# A kernel reports "idle" only after handling a request, and the REST API
+# cannot send one. A restart can: the server waits for the restarted kernel
+# to answer a kernel_info request before it replies 200.
+time.sleep(5)
+s, body = req(f"/api/kernels/{kid}/restart", {}, "POST", as_json=True)
 state = "?"
-for _ in range(60):
-    s, body = req(f"/api/kernels/{kid}")
-    state = json.loads(body).get("execution_state") if s == 200 else f"http {s}"
+for _ in range(30):
+    s2, b2 = req(f"/api/kernels/{kid}")
+    state = json.loads(b2).get("execution_state") if s2 == 200 else f"http {s2}"
     if state == "idle":
         break
     time.sleep(2)
-print("kernel:", state)
+print("kernel:", "idle" if s == 200 else f"restart failed ({s}: {body[:120]})", f"(state {state})")
 req(f"/api/kernels/{kid}", None, "DELETE")

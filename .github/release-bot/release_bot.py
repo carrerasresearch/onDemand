@@ -223,7 +223,10 @@ def poc_job(name, files, sbatch, timeout_min=30):
             break
         time.sleep(15)
     out = cluster(f"cat {d}/test.out 2>/dev/null || true")
-    cluster(f"rm -rf {d}", check=False)
+    if os.environ.get("RELEASE_BOT_KEEP_JOBS"):
+        log(f"keeping ~/{d} on the cluster (RELEASE_BOT_KEEP_JOBS)")
+    else:
+        cluster(f"rm -rf {d}", check=False)
     log(f"POC job output:\n{out}")
     return job, out
 
@@ -393,7 +396,8 @@ c.ServerApp.open_browser = False
 c.ServerApp.disable_check_xsrf = True
 EOL
 module load singularity >/dev/null 2>&1
-singularity exec "%s" python -c 'import torch, jupyterlab, numpy; print("imports: torch", torch.__version__, "cuda", torch.version.cuda, "jupyterlab", jupyterlab.__version__)'
+# Same environment as the app: --cleanenv and the conda env activated.
+singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import torch, jupyterlab, numpy, zmq; print(\"imports: torch\", torch.__version__, \"cuda\", torch.version.cuda, \"jupyterlab\", jupyterlab.__version__)"'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
@@ -439,12 +443,14 @@ class VSCode:
 echo "image={image}"
 singularity exec {image} /usr/container/bin/code --version | head -1 | sed 's/^/code: /'
 singularity exec {image} /usr/container/bin/code tunnel user show 2>&1 | head -1 | sed 's/^/tunnel: /'
-singularity exec {image} bash -lc 'sbatch --version; echo "export=$SBATCH_EXPORT"' 2>&1 | sed 's/^/slurm: /'
+# sbatch needs the node's slurm.conf, which the app's script prepares; here
+# check the client is installed and the --export=NONE defaults are set.
+singularity exec --cleanenv {image} sh -c 'test -x /usr/bin/sbatch && echo sbatch=ok; echo "export=$SBATCH_EXPORT"; test -f /etc/profile.d/slurm-export.sh && echo profile=ok' 2>&1 | sed 's/^/slurm: /'
 """
         job, out = poc_job(f"vscode_{key}", {}, sbatch, timeout_min=10)
         want = re.escape(key) if key != "current" else r"[\d.]+"
         ok = (re.search(rf"^code: code {want}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
-              and "slurm: slurm 20.11" in out and "slurm: export=NONE" in out)
+              and "slurm: sbatch=ok" in out and "slurm: export=NONE" in out and "slurm: profile=ok" in out)
         return bool(ok), job, out
 
 
