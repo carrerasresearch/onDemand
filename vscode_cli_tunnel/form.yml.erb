@@ -9,12 +9,13 @@ attributes:
   vscode_version:
     label: "Version"
     widget: "select"
-    # Default stays 1.116.0 (the image this app always used); OOD remembers
-    # each user's last choice.
-    value: "1.116.0"
+    # The value is the description, because the session card shows the value.
+    # Default stays the image this app always used; OOD remembers each user's
+    # last choice.
+    value: "VS Code 1.116.0, Slurm client 20.11"
     options:
-      - ["VS Code 1.144.0 (Slurm client 20.11)", "1.144.0"]
-      - ["VS Code 1.116.0 (Slurm client 20.11)", "1.116.0"]
+      - ["VS Code 1.144.0, Slurm client 20.11", "VS Code 1.144.0, Slurm client 20.11"]
+      - ["VS Code 1.116.0, Slurm client 20.11", "VS Code 1.116.0, Slurm client 20.11"]
     help: |
       The VS Code CLI that runs the tunnel. Your editor installs its own
       matching server when it connects, so any version works with a recent

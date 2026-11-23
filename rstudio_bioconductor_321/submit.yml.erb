@@ -4,8 +4,12 @@ batch_connect:
 script:
   copy_environment: no
   native:
-<%- v = bioc_version.to_s.empty? ? "3.21" : bioc_version.to_s -%>
-    - "--job-name=<%= v == "ehmm" ? "ood_rstudio_ehmm" : "ood_rstudio_bioconductor_#{v.delete(".")}" %>"
+<%-
+  v = bioc_version.to_s
+  m = v.match(/Bioconductor (\d+)\.(\d+)/) || v.match(/\A(\d+)\.(\d+)\z/)
+  job = v =~ /ehmm/i ? "ood_rstudio_ehmm" : "ood_rstudio_bioconductor_#{m ? m[1] + m[2] : "321"}"
+-%>
+    - "--job-name=<%= job %>"
     - "--cpus-per-task=<%= custom_cpus %>"
     - "--mem=<%= memory %>G"
     - "--time=<%= bc_num_hours %>:00:00"  

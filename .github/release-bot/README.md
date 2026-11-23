@@ -100,7 +100,7 @@ Manual runs:
 ```sh
 release_bot.py --dry-run                                   # what is new upstream
 release_bot.py --only jupyter                              # one app
-release_bot.py --test-existing jupyter:cuda13 [--ref BR]   # POC test of an offered version; changes nothing
+release_bot.py --test-existing jupyter:2026.11 [--ref BR]  # POC test of an offered version (any unique part of its name); changes nothing
 ```
 
 Never add a broad `/tmp` cleanup to a `.def`. During `apptainer build`,

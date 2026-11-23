@@ -248,9 +248,41 @@ export port=$(python3 -c 'import socket;s=socket.socket();s.bind(("",0));print(s
 
 # --------------------------------------------------------------------------- plugins
 class Release:
-    def __init__(self, key, label, image, deffile, build_args, summary):
-        self.key, self.label, self.image, self.deffile = key, label, image, deffile
+    """One new version. The form value is the description itself (label ==
+    key), because OOD's session card shows the value; `short` (e.g. "3.24",
+    "2026.11") names the image file, the branch and the test job."""
+    def __init__(self, short, label, image, deffile, build_args, summary):
+        self.short, self.label, self.image, self.deffile = short, label, image, deffile
         self.build_args, self.summary = build_args, summary
+
+    @property
+    def key(self):
+        return self.label
+
+
+def slug(text):
+    return re.sub(r"[^A-Za-z0-9.]+", "-", text).strip("-")[:60]
+
+
+def offered_keys(app):
+    """Descriptive keys of the images table in an app's script.sh.erb."""
+    return re.findall(r'^    "([^"]+)" =>', (REPO / app / "template/script.sh.erb").read_text(), re.M)
+
+
+def resolve_key(app, text):
+    """Map a short name ("3.23", "2026.11", "1.144.0", "ehmm") to a key."""
+    script = (REPO / app / "template/script.sh.erb").read_text()
+    keys = offered_keys(app)
+    if text in keys:
+        return text
+    m = re.search(rf'"{re.escape(text)}" => "([^"]+)"', script)     # an old short name (aliases)
+    if m and m.group(1) in keys:
+        return m.group(1)
+    rows = dict(re.findall(r'^    "([^"]+)" => (.*)$', script, re.M))   # key -> image path(s)
+    hits = [k for k in keys if text.lower() in k.lower() or text in rows.get(k, "")]
+    if len(hits) != 1:
+        raise RuntimeError(f"{text!r} matches {len(hits)} versions of {app}: {keys}")
+    return hits[0]
 
 
 def insert_after(text, anchor_re, line, what):
@@ -265,7 +297,7 @@ class RStudio:
     title = "RStudio"
 
     def offered(self):
-        return re.findall(r'^ +"(\d+\.\d+)" =>', (REPO / self.app / "template/script.sh.erb").read_text(), re.M)
+        return [m.group(1) for k in offered_keys(self.app) if (m := re.match(r"Bioconductor (\d+\.\d+),", k))]
 
     def detect(self):
         best, url = None, "https://hub.docker.com/v2/repositories/bioconductor/tidyverse/tags?page_size=100"
@@ -282,7 +314,7 @@ class RStudio:
             return []
         rstudio = latest_rstudio()
         r = tag.split("-R-")[1]
-        return [Release(bioc, f"Bioconductor {bioc} (R {r}, RStudio {'.'.join(rstudio.split('.')[:2])})",
+        return [Release(bioc, f"Bioconductor {bioc}, R {r}, RStudio {'.'.join(rstudio.split('.')[:2])}",
                         f"bioconductor_{bioc}.sif", "rstudio_bioconductor.def",
                         {"BIOC_TAG": tag, "RSTUDIO_VERSION": rstudio},
                         f"Bioconductor {bioc} (R {r}, RStudio Server {rstudio})")]
@@ -291,10 +323,10 @@ class RStudio:
         d = REPO / self.app
         f = d / "form.yml"
         f.write_text(insert_after(f.read_text(), r"  bioc_version:\n(?:    .*\n)*?    options:\n",
-                                  f'      - ["{rel.label}", "{rel.key}"]\n', "bioc_version options in form.yml"))
+                                  f'      - ["{rel.label}", "{rel.label}"]\n', "bioc_version options in form.yml"))
         f = d / "template/script.sh.erb"
         f.write_text(insert_after(f.read_text(), r"  images = \{\n",
-                                  f'    "{rel.key}" => ["{IMAGES}/{rel.image}", "rstudio_server_bioconductor_{rel.key}"],\n',
+                                  f'    "{rel.key}" => ["{IMAGES}/{rel.image}", "rstudio_server_bioconductor_{rel.short}"],\n',
                                   "images table in script.sh.erb"))
 
     def poc_test(self, key):
@@ -307,7 +339,7 @@ pid=$!
 python3 ./probe.py "$port" "$USER"
 kill $pid; pkill -u "$USER" -f "rserver --www-port $port"; wait
 """
-        job, out = poc_job(f"rstudio_{key}", {"script.sh": script, "probe.py": HERE / "probes/rstudio.py",
+        job, out = poc_job(f"rstudio_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/rstudio.py",
                                                "bin/auth": REPO / self.app / "template/bin/auth"}, sbatch)
         ok = ("sign_in: 200" in out and re.search(r"^ide: 200 .*title: RStudio", out, re.M)
               and re.search(rf"^rsession: .*--r-libs-user \S*/{re.escape(workdir)}/R/user-libs", out, re.M))
@@ -368,21 +400,21 @@ class Jupyter:
             f"(torchvision {tv}), Cell Ranger {cr_v}, ARC {arc_v} (from {IMAGES})")
         if any(all(h[i] >= want[i] for i in range(3)) for h in have):
             return []
-        key = dt.date.today().strftime("%Y.%m")
+        short = dt.date.today().strftime("%Y.%m")     # names the image file
         script = (REPO / self.app / "template/script.sh.erb").read_text()
-        while f'"{key}" =>' in script:
-            key += ".1"
-        # "with CUDA x.y" is filled in after the build (label_after_build).
-        label = (f"{key} (Python 3.12, JupyterLab {'.'.join(map(str, want[0]))}, "
-                 f"PyTorch {'.'.join(map(str, want[1]))} with CUDA ?, Cell Ranger {'.'.join(map(str, want[2]))})")
-        return [Release(key, label, f"jupyter-cellranger_{key}.sif", "jupyter-cellranger.def",
+        while f"jupyter-cellranger_{short}.sif" in script:
+            short += ".1"
+        # The CUDA version PyTorch was built for is filled in after the build.
+        label = (f"Python 3.12, JupyterLab {'.'.join(map(str, want[0]))}, "
+                 f"PyTorch {'.'.join(map(str, want[1]))} (CUDA ?), Cell Ranger {'.'.join(map(str, want[2]))}")
+        return [Release(short, label, f"jupyter-cellranger_{short}.sif", "jupyter-cellranger.def",
                         {"JUPYTERLAB_VERSION": jl, "TORCH_VERSION": torch, "TORCHVISION_VERSION": tv,
                          "CELLRANGER_VERSION": cr_v, "CELLRANGER_ARC_VERSION": arc_v},
-                        f"image {key}: JupyterLab {jl}, PyTorch {torch}, Cell Ranger {cr_v} (ARC {arc_v}), Python 3.12")]
+                        f"image {short}: JupyterLab {jl}, PyTorch {torch}, Cell Ranger {cr_v} (ARC {arc_v}), Python 3.12")]
 
     @staticmethod
     def label_after_build(rel, versions):
-        rel.label = rel.label.replace("with CUDA ?", f"with CUDA {versions.get('torch_cuda', '?')}")
+        rel.label = rel.label.replace("(CUDA ?)", f"(CUDA {versions.get('torch_cuda', '?')})")
 
     @staticmethod
     def torch_pair():
@@ -454,7 +486,7 @@ class Jupyter:
         d = REPO / self.app
         f = d / "form.yml"
         f.write_text(insert_after(f.read_text(), r"  jupyter_image:\n(?:    .*\n)*?    options:\n",
-                                  f'      - ["{rel.label}", "{rel.key}"]\n', "jupyter_image options in form.yml"))
+                                  f'      - ["{rel.label}", "{rel.label}"]\n', "jupyter_image options in form.yml"))
         f = d / "template/script.sh.erb"
         f.write_text(insert_after(f.read_text(), r"  images = \{\n", f'    "{rel.key}" => "{IMAGES}/{rel.image}",\n',
                                   "images table in script.sh.erb"))
@@ -487,7 +519,7 @@ pid=$!
 python3 ./probe.py "$port" "$host" "$password"
 pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
 """ % (m.group(1), m.group(1))
-        job, out = poc_job(f"jupyter_{key}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch)
+        job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch)
         ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
               and re.search(r"^cellranger: cellranger (cellranger-)?\d+\.\d+\.\d+", out, re.M)
@@ -500,7 +532,7 @@ class VSCode:
     title = "VS Code Tunnel"
 
     def offered(self):
-        return re.findall(r'^ +"(\d+\.\d+\.\d+)" =>', (REPO / self.app / "template/script.sh.erb").read_text(), re.M)
+        return [m.group(1) for k in offered_keys(self.app) if (m := re.match(r"VS Code (\d+\.\d+\.\d+),", k))]
 
     # VS Code ships a minor release about every week, plus recovery patches.
     # The image only provides the tunnel CLI (the editor installs its own
@@ -540,14 +572,14 @@ class VSCode:
             f"newest settled (>= {self.SETTLED_DAYS} days) {target}")
         if cur and (num(cur) >= num(target) or (cur_age is not None and cur_age < self.MAX_AGE_DAYS)):
             return []
-        return [Release(target, f"VS Code {target} (Slurm client 20.11)", f"vscode-tunnel_{target}.sif",
+        return [Release(target, f"VS Code {target}, Slurm client 20.11", f"vscode-tunnel_{target}.sif",
                         "vscode-tunnel.def", {"VSCODE_VERSION": target}, f"VS Code {target}")]
 
     def patch(self, rel):
         d = REPO / self.app
         f = d / "form.yml.erb"
         f.write_text(insert_after(f.read_text(), r"  vscode_version:\n(?:    .*\n)*?    options:\n",
-                                  f'      - ["{rel.label}", "{rel.key}"]\n', "vscode_version options in form.yml.erb"))
+                                  f'      - ["{rel.label}", "{rel.label}"]\n', "vscode_version options in form.yml.erb"))
         f = d / "template/script.sh.erb"
         f.write_text(insert_after(f.read_text(), r"  images = \{\n", f'    "{rel.key}" => "{IMAGES}/{rel.image}",\n',
                                   "images table in script.sh.erb"))
@@ -567,8 +599,9 @@ singularity exec {image} /usr/container/bin/code tunnel user show 2>&1 | head -1
 # check the client is installed and the --export=NONE defaults are set.
 singularity exec --cleanenv {image} sh -c 'test -x /usr/bin/sbatch && echo sbatch=ok; echo "export=$SBATCH_EXPORT"; test -f /etc/profile.d/slurm-export.sh && echo profile=ok' 2>&1 | sed 's/^/slurm: /'
 """
-        job, out = poc_job(f"vscode_{key}", {}, sbatch, timeout_min=10)
-        ok = (re.search(rf"^code: code {re.escape(key)}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
+        job, out = poc_job(f"vscode_{slug(key)}", {}, sbatch, timeout_min=10)
+        version = re.match(r"VS Code (\S+),", key).group(1)
+        ok = (re.search(rf"^code: code {re.escape(version)}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
               and "slurm: sbatch=ok" in out and "slurm: export=NONE" in out and "slurm: profile=ok" in out)
         return bool(ok), job, out
 
@@ -598,7 +631,7 @@ def release(plugin, rel, onto=None):
     version is committed onto that existing branch instead (e.g. a PR still
     in review) and no PR or email is made; failures still raise.
     """
-    branch = onto or f"release-bot/{plugin.app}-{rel.key}"
+    branch = onto or f"release-bot/{plugin.app}-{rel.short}"
     if not onto and remote_branch_exists(branch):
         log(f"[{plugin.app}] {branch} already exists (PR pending); skipping")
         return
@@ -681,6 +714,7 @@ def main():
         plugin = PLUGINS[app]
         try:
             checkout(a.ref)
+            key = resolve_key(app, key)
             publish_to_poc(a.ref)
             ok, job, out = plugin.poc_test(key)
         except Exception as e:

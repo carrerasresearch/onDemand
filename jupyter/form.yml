@@ -13,14 +13,14 @@ attributes:
   jupyter_image:
     label: "Image"
     widget: "select"
-    # Images are named by build month. The default stays 2026.02 (the image
-    # Jupyter Lab always used) so existing users keep their Python packages;
-    # OOD remembers each user's last choice.
-    value: "2026.02"
+    # The value is the description, because the session card shows the value.
+    # The default stays the image Jupyter Lab always used, so existing users
+    # keep their Python packages; OOD remembers each user's last choice.
+    value: "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0"
     options:
-      - ["2026.11 (Python 3.12, JupyterLab 4.6, PyTorch 2.14 with CUDA 13.0, Cell Ranger 10.1)", "2026.11"]
-      - ["2026.02.1 (Python 3.12, JupyterLab 4.5, PyTorch 2.10 with CUDA 12.8, Cell Ranger 9.0)", "2026.02.1"]
-      - ["2026.02 (Python 3.10, JupyterLab 4.4, PyTorch 1.12 with CUDA 11.6, Cell Ranger 9.0)", "2026.02"]
+      - ["Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1", "Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1"]
+      - ["Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0", "Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0"]
+      - ["Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0", "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0"]
     help: |
       All images run on CPU or GPU nodes and include Cell Ranger ARC 2.0.2.
       Python packages you install with pip are kept per Python version, so
@@ -41,8 +41,9 @@ attributes:
     label: Use GPU
     widget: select
     options:
-      - [ false, test2, data-max-num-cores: 16, data-set-bc-queue: test ]
-      - [ true, test-gpu, data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
+      # The value is the description, because the session card shows the value.
+      - [ "No (CPU node, up to 16 CPUs)", "No (CPU node, up to 16 CPUs)", data-max-num-cores: 16, data-set-bc-queue: test ]
+      - [ "Yes (1 GPU: NVIDIA A40, up to 4 CPUs)", "Yes (1 GPU: NVIDIA A40, up to 4 CPUs)", data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
     display: true
   num_cores:
     label: Number of CPUs

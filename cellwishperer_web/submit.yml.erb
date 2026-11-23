@@ -18,7 +18,8 @@ script:
     - "--cpus-per-task=<%= num_cores %>"
     - "--mem=<%= memory %>G"
     - "--time=<%= bc_num_hours %>:00:00"
-    - "--partition=<%= use_gpu %>"
- <% if use_gpu == 'test-gpu' %>
+<%- gpu = use_gpu.to_s.start_with?("Yes") || use_gpu.to_s == "test-gpu" -%>
+    - "--partition=<%= gpu ? "test-gpu" : "test2" %>"
+<% if gpu %>
     - "--gres=gpu:1"
  <% end %>

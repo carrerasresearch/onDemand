@@ -6,14 +6,17 @@
 
 # Singularity Image Path
 <%-
-  # Version (form.yml vscode_version) => SIF. 1.116.0 is the fallback for
-  # sessions saved before the version field existed. New versions are added at
-  # the top by .github/release-bot.
+  # Version (form.yml vscode_version; the value is the description shown on
+  # the session card) => SIF. New versions are added at the top by .github/release-bot.
   images = {
-    "1.144.0" => "/ijc/PUBLIC/DATA/images/vscode-tunnel_1.144.0.sif",
-    "1.116.0" => "/ijc/PUBLIC/DATA/images/vscode-tunnel.sif",
+    "VS Code 1.144.0, Slurm client 20.11" => "/ijc/PUBLIC/DATA/images/vscode-tunnel_1.144.0.sif",
+    "VS Code 1.116.0, Slurm client 20.11" => "/ijc/PUBLIC/DATA/images/vscode-tunnel.sif",
   }
-  key = images.key?(context.vscode_version.to_s) ? context.vscode_version.to_s : "1.116.0"
+  # Short values used before the descriptive ones (saved sessions).
+  aliases = { "1.144.0" => "VS Code 1.144.0, Slurm client 20.11", "1.116.0" => "VS Code 1.116.0, Slurm client 20.11" }
+  default = "VS Code 1.116.0, Slurm client 20.11"
+  key = aliases.fetch(context.vscode_version.to_s, context.vscode_version.to_s)
+  key = default unless images.key?(key)
 -%>
 SINGULARITY_IMAGE="<%= images[key] %>"
 echo "Version <%= key %>: ${SINGULARITY_IMAGE}"

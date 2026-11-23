@@ -6,18 +6,18 @@ echo "TIMING - Starting jupyter at: $(date)"
 # Load the required environment
 setup_env () {
 <%-
-  # Image (form.yml jupyter_image, named by build month) => SIF. 2026.02 is
-  # the fallback for sessions saved before the image field existed. New images
-  # are added at the top by .github/release-bot.
+  # Image (form.yml jupyter_image; the value is the description shown on the
+  # session card) => SIF. New images are added at the top by .github/release-bot.
   images = {
-    "2026.11" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger_2026.11.sif",
-    "2026.02.1" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif",
-    "2026.02" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif",
+    "Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger_2026.11.sif",
+    "Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif",
+    "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif",
   }
-  # Earlier names of the 2026.02 images.
-  aliases = { "cuda13" => "2026.02.1", "cuda11" => "2026.02" }
+  # Short values used before the descriptive ones (saved sessions).
+  aliases = { "2026.11" => "Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1", "2026.02.1" => "Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0", "cuda13" => "Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0", "2026.02" => "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0", "cuda11" => "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0" }
+  default = "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0"
   key = aliases.fetch(context.jupyter_image.to_s, context.jupyter_image.to_s)
-  key = "2026.02" unless images.key?(key)
+  key = default unless images.key?(key)
   image = images[key]
 -%>
   export JUPYTERLAB_IMAGE="<%= image %>"
@@ -29,7 +29,7 @@ setup_env () {
   # We need a python to generate the secure cookie key
   module load Python/3.8.5-GCCcore-11.2.0
 
-  <% if context.use_gpu == 'test-gpu' %>
+  <% if context.use_gpu.to_s.start_with?("Yes") || context.use_gpu.to_s == "test-gpu" %>
   # Load the CUDA module only when GPU is requested in the form
   module load CUDA/12.3.1
   <% end %>
@@ -88,7 +88,7 @@ export SINGULARITYENV_PYTHONPATH=""
 echo "Starting up JupyterLab server..."
 
 SINGULARITY_GPU_FLAG=""
-<% if context.use_gpu == 'test-gpu' %>
+<% if context.use_gpu.to_s.start_with?("Yes") || context.use_gpu.to_s == "test-gpu" %>
 SINGULARITY_GPU_FLAG="--nv"
 <% end %>
 
