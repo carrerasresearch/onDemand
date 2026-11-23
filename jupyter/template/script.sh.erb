@@ -69,7 +69,9 @@ chmod 0600 "$TMPDIR/jupyterlab-server/secure-cookie-key"
 
 # --- SET ISOLATION VARIABLES ---
 # /opt paths for CellRanger at the beginning
-export SINGULARITYENV_PATH="/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# /opt/cellranger(-arc) link to the installed versions in newer images; the
+# versioned paths are for the cuda11/cuda13 images.
+export SINGULARITYENV_PATH="/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 export SINGULARITYENV_PREPEND_PATH="/opt/conda/bin"
 # Mask host .condarc and bind OOD's config/run dirs

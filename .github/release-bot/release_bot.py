@@ -318,28 +318,66 @@ class Jupyter:
     app = "jupyter"
     title = "Jupyter Lab"
 
+    # Cell Ranger releases come from 10x's signed links, so they are not
+    # downloaded here: a maintainer puts cellranger-X.Y.Z.tar.gz (and
+    # cellranger-arc-X.Y.Z.tar.gz) in IMAGES, and the next image uses the newest.
+    CR_FILE = re.compile(r"^cellranger-(\d+\.\d+\.\d+)\.tar(?:\.gz)?$")
+    ARC_FILE = re.compile(r"^cellranger-arc-(\d+\.\d+\.\d+)\.tar(?:\.gz)?$")
+    # Image with Cell Ranger 9.0.1 / ARC 2.0.2 in /opt, used to re-create those
+    # tarballs when the copies in IMAGES are damaged.
+    CELLRANGER_FALLBACK_IMAGE = "jupyter-cellranger-gpu-cuda-13.sif"
+
     def offered(self):
+        """(jupyterlab, torch, cellranger) major.minor of each offered image.
+
+        Labels without "Cell Ranger X.Y" are the cuda11/cuda13 images (9.0).
+        """
         form = (REPO / self.app / "form.yml").read_text()
-        return [(int(a), int(b), int(c), int(d)) for a, b, c, d in
-                re.findall(r"JupyterLab (\d+)\.(\d+), PyTorch (\d+)\.(\d+)", form)]
+        out = []
+        for label in re.findall(r'^ +- \["([^"]*JupyterLab [^"]*)"', form, re.M):
+            jl = re.search(r"JupyterLab (\d+)\.(\d+)", label)
+            t = re.search(r"PyTorch (\d+)\.(\d+)", label)
+            cr = re.search(r"Cell Ranger (\d+)\.(\d+)", label)
+            if jl and t:
+                out.append((tuple(map(int, jl.groups())), tuple(map(int, t.groups())),
+                            tuple(map(int, cr.groups())) if cr else (9, 0)))
+        return out
+
+    def cellranger_files(self):
+        """{"cellranger": (version, file), "arc": (version, file)}: newest in IMAGES."""
+        names = cluster(f"ls -1 {IMAGES}").split()
+        newest = {}
+        for kind, rx in (("cellranger", self.CR_FILE), ("arc", self.ARC_FILE)):
+            found = [(tuple(map(int, m.group(1).split("."))), m.group(1), n) for n in names if (m := rx.match(n))]
+            if not found:
+                raise RuntimeError(f"no {kind} tarball in {IMAGES}")
+            _, v, n = max(found)
+            newest[kind] = (v, n)
+        return newest
 
     def detect(self):
         jl = http_json("https://pypi.org/pypi/jupyterlab/json")["info"]["version"]
         torch, tv = self.torch_pair()
-        jl_mm, t_mm = tuple(map(int, jl.split(".")[:2])), tuple(map(int, torch.split(".")[:2]))
+        cr = self.cellranger_files()
+        cr_v, arc_v = cr["cellranger"][0], cr["arc"][0]
+        mm = lambda v: tuple(map(int, v.split(".")[:2]))
+        want = (mm(jl), mm(torch), mm(cr_v))
         have = self.offered()
-        log(f"[{self.app}] offers (jupyterlab, torch) {[(f'{a}.{b}', f'{c}.{d}') for a, b, c, d in have]}; "
-            f"latest jupyterlab {jl}, torch {torch} (torchvision {tv})")
-        if any((a, b) >= jl_mm and (c, d) >= t_mm for a, b, c, d in have):
+        log(f"[{self.app}] offers (jupyterlab, torch, cellranger) "
+            f"{[tuple('.'.join(map(str, x)) for x in h) for h in have]}; latest jupyterlab {jl}, torch {torch} "
+            f"(torchvision {tv}), Cell Ranger {cr_v}, ARC {arc_v} (from {IMAGES})")
+        if any(all(h[i] >= want[i] for i in range(3)) for h in have):
             return []
         key = dt.date.today().strftime("%Y.%m")
         script = (REPO / self.app / "template/script.sh.erb").read_text()
         while f'"{key}" =>' in script:
             key += ".1"
-        return [Release(key, f"{key} (Python 3.12, JupyterLab {jl_mm[0]}.{jl_mm[1]}, PyTorch {t_mm[0]}.{t_mm[1]})",
-                        f"jupyter-cellranger_{key}.sif", "jupyter-cellranger.def",
-                        {"JUPYTERLAB_VERSION": jl, "TORCH_VERSION": torch, "TORCHVISION_VERSION": tv},
-                        f"image {key}: JupyterLab {jl}, PyTorch {torch}, torchvision {tv}, Python 3.12, Cell Ranger 9.0.1")]
+        label = (f"{key} (Python 3.12, JupyterLab {'.'.join(map(str, want[0]))}, "
+                 f"PyTorch {'.'.join(map(str, want[1]))}, Cell Ranger {'.'.join(map(str, want[2]))})")
+        return [Release(key, label, f"jupyter-cellranger_{key}.sif", "jupyter-cellranger.def",
+                        {"JUPYTERLAB_VERSION": jl, "TORCH_VERSION": torch, "TORCHVISION_VERSION": tv,
+                         "CELLRANGER_VERSION": cr_v, "CELLRANGER_ARC_VERSION": arc_v},
+                        f"image {key}: JupyterLab {jl}, PyTorch {torch}, Cell Ranger {cr_v} (ARC {arc_v}), Python 3.12")]
 
     @staticmethod
     def torch_pair():
@@ -362,47 +400,49 @@ class Jupyter:
             raise RuntimeError(f"no torch {m.group(2)}.{m.group(3)}.x release for torchvision {tv}")
         return same_minor[-1], tv
 
-    CELLRANGER = {"cellranger-9.0.1.tar": "cellranger-9.0.1", "cellranger-arc-2.0.2.tar": "cellranger-arc-2.0.2"}
-    # Image whose /opt has the same Cell Ranger releases installed (the source
-    # tarballs come from 10x's signed links and cannot be downloaded unattended).
-    CELLRANGER_FALLBACK_IMAGE = "jupyter-cellranger-gpu-cuda-13.sif"
+    def build_context(self, rel):
+        """Put cellranger.tar.gz and cellranger-arc.tar.gz in the build directory.
 
-    def build_context(self):
-        """The .def copies the Cell Ranger tarballs from the build directory.
-
-        Uses the copies in IMAGES if they are intact; otherwise re-creates
-        them from the Cell Ranger installed in an existing image and emails
-        the maintainer that the copies in IMAGES are damaged.
+        Uses the tarballs in IMAGES when intact; a damaged one is re-created
+        from the same release installed in CELLRANGER_FALLBACK_IMAGE (if it
+        has it) and the maintainer is emailed to replace it.
         """
         d = STATE / "build" / "jupyter-ctx"
         d.mkdir(parents=True, exist_ok=True)
         intact = lambda p: subprocess.run(["gzip", "-t", str(p)], capture_output=True).returncode == 0
+        files = self.cellranger_files()
         damaged = []
-        for tar, opt_dir in self.CELLRANGER.items():
-            p = d / tar
-            if p.exists() and intact(p):
-                continue
-            run(["scp", "-q", f"{cfg['SSH_HOST']}:{IMAGES}/{tar}", str(p)])
-            if intact(p):
-                continue
-            damaged.append(tar)
-            src = STATE / "build" / self.CELLRANGER_FALLBACK_IMAGE
-            if not src.exists():
-                log(f"{IMAGES}/{tar} is damaged; copying {self.CELLRANGER_FALLBACK_IMAGE} to re-create it")
-                run(["scp", "-q", f"{cfg['SSH_HOST']}:{IMAGES}/{self.CELLRANGER_FALLBACK_IMAGE}", str(src)])
-            log(f"re-creating {tar} from /opt/{opt_dir} in {src.name}")
-            with p.open("wb") as out:
-                subprocess.run(["apptainer", "exec", str(src), "tar", "-C", "/opt", "-czf", "-", opt_dir],
-                               stdout=out, check=True)
-            if not intact(p):
-                raise RuntimeError(f"re-created {p} is not a valid archive")
+        for kind, fixed, opt_prefix in (("cellranger", "cellranger.tar.gz", "cellranger"),
+                                        ("arc", "cellranger-arc.tar.gz", "cellranger-arc")):
+            version, name = files[kind]
+            cache = d / f"{opt_prefix}-{version}.tar.gz"       # per-version cache
+            if not (cache.exists() and intact(cache)):
+                run(["scp", "-q", f"{cfg['SSH_HOST']}:{IMAGES}/{name}", str(cache)])
+            if not intact(cache):
+                damaged.append(name)
+                src = STATE / "build" / self.CELLRANGER_FALLBACK_IMAGE
+                if not src.exists():
+                    log(f"{IMAGES}/{name} is damaged; copying {src.name} to re-create it")
+                    run(["scp", "-q", f"{cfg['SSH_HOST']}:{IMAGES}/{src.name}", str(src)])
+                opt_dir = f"{opt_prefix}-{version}"
+                log(f"re-creating {name} from /opt/{opt_dir} in {src.name}")
+                with cache.open("wb") as out:
+                    p = subprocess.run(["apptainer", "exec", str(src), "tar", "-C", "/opt", "-czf", "-", opt_dir],
+                                       stdout=out)
+                if p.returncode or not intact(cache):
+                    cache.unlink(missing_ok=True)
+                    raise RuntimeError(f"{IMAGES}/{name} is damaged and {src.name} has no /opt/{opt_dir}. "
+                                       f"Manual step: download {name} again from 10x Genomics.")
+            target = d / fixed
+            target.unlink(missing_ok=True)
+            os.link(cache, target)
         if damaged:
             notify("release bot: Cell Ranger archives in the images folder are damaged",
                    f"These files in {IMAGES} fail 'gzip -t' (truncated or corrupt):\n  " + "\n  ".join(damaged) +
-                   f"\n\nThe build used copies re-created from the Cell Ranger installed in "
-                   f"{self.CELLRANGER_FALLBACK_IMAGE} (same releases), kept in {d}.\n\n"
+                   f"\n\nThe build used copies re-created from the same release installed in "
+                   f"{self.CELLRANGER_FALLBACK_IMAGE}, kept in {d}.\n\n"
                    f"Manual step: replace the files in {IMAGES} with fresh downloads from 10x Genomics "
-                   f"(or with the re-created copies in {d}), so future builds can use them.")
+                   f"(or with the re-created copies in {d}).")
         return d
 
     def patch(self, rel):
@@ -436,7 +476,7 @@ EOL
 module load singularity >/dev/null 2>&1
 # Same environment as the app: --cleanenv and the conda env activated.
 singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import zmq, jupyterlab, numpy, torch; print(\"imports: torch\", torch.__version__, \"cuda\", torch.version.cuda, \"jupyterlab\", jupyterlab.__version__)"'
-singularity exec --cleanenv "%s" bash --norc -c 'export PATH=/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:$PATH; cellranger --version; cellranger-arc --version' 2>&1 | sed 's/^/cellranger: /'
+singularity exec --cleanenv "%s" bash --norc -c 'export PATH=/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:$PATH; cellranger --version; cellranger-arc --version' 2>&1 | sed 's/^/cellranger: /'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
@@ -445,8 +485,8 @@ pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
         job, out = poc_job(f"jupyter_{key}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch)
         ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
-              and re.search(r"^cellranger: cellranger cellranger-9\.0\.1", out, re.M)
-              and re.search(r"^cellranger: cellranger-arc cellranger-arc-2\.0\.2", out, re.M))
+              and re.search(r"^cellranger: cellranger cellranger-\d+\.\d+\.\d+", out, re.M)
+              and re.search(r"^cellranger: cellranger-arc cellranger-arc-\d+\.\d+\.\d+", out, re.M))
         return bool(ok), job, out
 
 
@@ -558,7 +598,7 @@ def release(plugin, rel, onto=None):
         log(f"[{plugin.app}] {branch} already exists (PR pending); skipping")
         return
     check_disk(plugin.app)
-    ctx = plugin.build_context() if hasattr(plugin, "build_context") else REPO / plugin.app
+    ctx = plugin.build_context(rel) if hasattr(plugin, "build_context") else REPO / plugin.app
     sif = STATE / "build" / rel.image
     versions = apptainer_build(sif, REPO / plugin.app / rel.deffile, rel.build_args, ctx)
     log(f"image versions: {versions}")

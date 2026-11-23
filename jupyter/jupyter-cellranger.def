@@ -4,12 +4,16 @@
 # jupyter-cellranger-gpu-cuda-13.sif); .github/release-bot builds new images
 # from this file when JupyterLab or PyTorch publish a new minor release.
 #
-# Build (from a directory containing the two Cell Ranger tarballs, copied from
-# /ijc/PUBLIC/DATA/images/):
+# Build from a directory containing cellranger.tar.gz and cellranger-arc.tar.gz
+# (the 10x release tarballs, e.g. /ijc/PUBLIC/DATA/images/cellranger-10.1.0.tar.gz,
+# copied under those fixed names):
 #   apptainer build --fakeroot \
-#     --build-arg JUPYTERLAB_VERSION=4.5.4 --build-arg TORCH_VERSION=2.10.0 \
-#     --build-arg TORCHVISION_VERSION=0.25.0 \
+#     --build-arg JUPYTERLAB_VERSION=4.6.6 --build-arg TORCH_VERSION=2.14.1 \
+#     --build-arg TORCHVISION_VERSION=0.29.2 \
+#     --build-arg CELLRANGER_VERSION=10.1.0 --build-arg CELLRANGER_ARC_VERSION=2.0.2 \
 #     jupyter-cellranger_2026.11.sif /path/to/jupyter/jupyter-cellranger.def
+# /opt/cellranger and /opt/cellranger-arc link to the installed versions, so
+# the app's PATH does not depend on them.
 # Deploy: cp the .sif to /ijc/PUBLIC/DATA/images/ and add it to form.yml and
 #   template/script.sh.erb (the release bot does both).
 #
@@ -26,10 +30,12 @@ From: nvidia/cuda:{{ CUDA_TAG }}
     JUPYTERLAB_VERSION=4.5.4
     TORCH_VERSION=2.10.0
     TORCHVISION_VERSION=0.25.0
+    CELLRANGER_VERSION=9.0.1
+    CELLRANGER_ARC_VERSION=2.0.2
 
 %files
-    ./cellranger-9.0.1.tar /opt/cellranger-9.0.1.tar
-    ./cellranger-arc-2.0.2.tar /opt/cellranger-arc-2.0.2.tar
+    ./cellranger.tar.gz /opt/cellranger.tar.gz
+    ./cellranger-arc.tar.gz /opt/cellranger-arc.tar.gz
 
 %post
     set -eu
@@ -39,9 +45,13 @@ From: nvidia/cuda:{{ CUDA_TAG }}
     apt-get update && apt-get install -y wget bzip2 ca-certificates libglib2.0-0 git curl
 
     cd /opt
-    tar -xmf cellranger-9.0.1.tar
-    tar -xmf cellranger-arc-2.0.2.tar
-    rm cellranger-9.0.1.tar cellranger-arc-2.0.2.tar
+    tar -xmf cellranger.tar.gz
+    tar -xmf cellranger-arc.tar.gz
+    rm cellranger.tar.gz cellranger-arc.tar.gz
+    test -x cellranger-{{ CELLRANGER_VERSION }}/cellranger
+    test -x cellranger-arc-{{ CELLRANGER_ARC_VERSION }}/cellranger-arc
+    ln -s cellranger-{{ CELLRANGER_VERSION }} /opt/cellranger
+    ln -s cellranger-arc-{{ CELLRANGER_ARC_VERSION }} /opt/cellranger-arc
 
     wget -q --timeout=60 --tries=5 https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh -O /opt/miniforge.sh
     bash /opt/miniforge.sh -b -p /opt/conda
@@ -63,15 +73,15 @@ print(f"torch_cuda={torch.version.cuda}")
 print(f"torchvision={torchvision.__version__}")
 print(f"numpy={numpy.__version__}")
 EOF
-    echo "cellranger=9.0.1" >> /etc/ood-image-versions
-    echo "cellranger_arc=2.0.2" >> /etc/ood-image-versions
+    echo "cellranger=$(/opt/cellranger/cellranger --version | awk '{print $2}' | sed 's/^cellranger-//')" >> /etc/ood-image-versions
+    echo "cellranger_arc=$(/opt/cellranger-arc/cellranger-arc --version | awk '{print $2}' | sed 's/^cellranger-arc-//')" >> /etc/ood-image-versions
     cat /etc/ood-image-versions
 
     # Never clean /tmp here: during `apptainer build` it is the HOST's /tmp.
     rm -rf /var/lib/apt/lists/*
 
 %environment
-    export PATH="/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/envs/jlab-env/bin:/opt/conda/bin:$PATH"
+    export PATH="/opt/cellranger:/opt/cellranger-arc:/opt/conda/envs/jlab-env/bin:/opt/conda/bin:$PATH"
     export CONDA_DEFAULT_ENV="jlab-env"
 
 %runscript
