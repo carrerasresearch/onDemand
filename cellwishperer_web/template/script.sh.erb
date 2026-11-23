@@ -17,6 +17,7 @@ export HOME="${HOME}"
 
 # Define the container image path
 export CELLWHISPERER_IMAGE="/ijc/PUBLIC/DATA/images/cellwhisperer.sif"
+[[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$CELLWHISPERER_IMAGE"
 
 # Get form values from the context
 export PROCESSED_DATA_PATH="<%= context.processed_dataset_path %>"
@@ -27,7 +28,7 @@ setup_env () {
   # Load the necessary modules: singularity is required to run the container
   module load singularity
   
-  <% if context.use_gpu == 'test-gpu' %>
+  <% if context.use_gpu.to_s.start_with?("Yes") || context.use_gpu.to_s == "test-gpu" %>
   # Load the CUDA module only when GPU is requested in the form
   module load CUDA/12.3.1 
   <% end %>
@@ -41,7 +42,7 @@ setup_env
 
 # Determine if the --nv (GPU) flag should be used for Singularity
 SINGULARITY_GPU_FLAG=""
-<% if context.use_gpu == 'test-gpu' %>
+<% if context.use_gpu.to_s.start_with?("Yes") || context.use_gpu.to_s == "test-gpu" %>
 SINGULARITY_GPU_FLAG="--nv"
 <% end %>
 

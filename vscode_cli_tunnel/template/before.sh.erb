@@ -8,6 +8,10 @@
 #
 #   - $port
 #     The port that the web server is listening on
+# Start-up checks with messages for the session card (ood_checks.sh).
+source ./ood_checks.sh
+ood_check_home
+
 port=$(find_port)
 password=$PWD
 

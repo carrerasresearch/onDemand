@@ -1,0 +1,22 @@
+<%-
+  # Shown on the session card once the session has ended.
+  # Master copy: .github/ood-checks/completed.md.erb (sync.sh copies it into each app).
+  err = staged_root.join("ood_error.md")
+  log = staged_root.join("output.log")
+  tail = begin
+    log.file? ? File.open(log) { |f| f.seek([f.size - 200_000, 0].max); f.read } : ""
+  rescue StandardError
+    ""
+  end
+-%>
+<%- if err.file? && err.size > 0 -%>
+<%= err.read %>
+<%- elsif tail =~ /oom[-_ ]kill|out of memory/i -%>
+#### The session ran out of memory
+
+It needed more memory than was requested in the form, so Slurm stopped it. Launch it again with more *Memory*.
+<%- elsif tail =~ /DUE TO TIME LIMIT/ -%>
+#### The session reached its time limit
+
+Slurm ended it when the requested hours ran out. Save your work regularly, and ask for more *hours* next time.
+<%- end -%>

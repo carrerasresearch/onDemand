@@ -19,6 +19,7 @@ module purge
 module load singularity || module load apptainer
 
 JUICEBOX_IMAGE="/ijc/PUBLIC/DATA/images/juicebox_web_v1.sif"
+[[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$JUICEBOX_IMAGE"
 SESSION_DIR="$(readlink -f "$PWD")"
 CADDYFILE="${SESSION_DIR}/Caddyfile"
 

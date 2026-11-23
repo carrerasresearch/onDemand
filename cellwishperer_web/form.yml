@@ -26,8 +26,9 @@ attributes:
     widget: select
     display: true
     options:
-      - [ false, test2, data-max-num-cores: 16, data-set-bc-queue: test ]
-      - [ true, test-gpu, data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
+      # The value is the description, because the session card shows the value.
+      - [ "No (CPU node, up to 16 CPUs)", "No (CPU node, up to 16 CPUs)", data-max-num-cores: 16, data-set-bc-queue: test ]
+      - [ "Yes (1 GPU: NVIDIA A40, up to 4 CPUs)", "Yes (1 GPU: NVIDIA A40, up to 4 CPUs)", data-max-num-cores: 4, data-set-bc-queue: test-gpu ]
   num_cores:
     label: Number of CPUs
     widget: number_field

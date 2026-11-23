@@ -1,9 +1,4 @@
 # Wait for the RStudio Server to start
-echo "Waiting for RStudio Server to open port ${port}..."
-if wait_until_port_used "${host}:${port}" 120; then
-  echo "Discovered RStudio Server listening on port ${port}!"
-else
-  echo "Timed out waiting for RStudio Server to open port ${port}!"
-  clean_up 1
-fi
+# (ood_wait_for_port explains a failure on the session card; see ood_checks.sh)
+ood_wait_for_port "RStudio Server" "${host}" "${port}" 120 || clean_up 1
 sleep 2

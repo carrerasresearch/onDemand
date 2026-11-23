@@ -23,6 +23,7 @@ fi
 module purge
 module load singularity || module load apptainer
 IMAGE="/ijc/PUBLIC/DATA/images/igv_desktop_v1.sif"
+[[ -f "${OOD_CHECKS:-}" ]] && source "$OOD_CHECKS" && ood_check_image "$IMAGE"
 
 # 4. IGV Config Injection
 mkdir -p "${OOD_SESSION_DIR}/igv"
