@@ -485,8 +485,8 @@ pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
         job, out = poc_job(f"jupyter_{key}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch)
         ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
-              and re.search(r"^cellranger: cellranger cellranger-\d+\.\d+\.\d+", out, re.M)
-              and re.search(r"^cellranger: cellranger-arc cellranger-arc-\d+\.\d+\.\d+", out, re.M))
+              and re.search(r"^cellranger: cellranger (cellranger-)?\d+\.\d+\.\d+", out, re.M)
+              and re.search(r"^cellranger: cellranger-arc (cellranger-arc-)?\d+\.\d+\.\d+", out, re.M))
         return bool(ok), job, out
 
 
