@@ -545,9 +545,11 @@ def main():
         except Exception as e:
             notify(f"release bot: ood-poc test of {app}:{key} FAILED", f"{e}\n\n{traceback.format_exc()}")
             raise
-        notify(f"release bot: ood-poc test of {app}:{key} {'passed' if ok else 'FAILED'}",
-               f"Test run only (--test-existing {app}:{key}, ref {a.ref}); nothing was built or changed.\n"
-               f"POC job {job}.\n\n{summary_of(out) if ok else out}")
+        log(f"ood-poc test of {app}:{key}: {'passed' if ok else 'FAILED'}\n{summary_of(out)}")
+        if not ok:  # only failures need the maintainer
+            notify(f"release bot: ood-poc test of {app}:{key} FAILED",
+                   f"Test run only (--test-existing {app}:{key}, ref {a.ref}); nothing was built or changed.\n"
+                   f"POC job {job}.\n\n{out}")
         return 0 if ok else 1
 
     failed = False
