@@ -128,13 +128,28 @@ def upload(local, name):
     return total
 
 
+NEED_GB = {"jupyter": 45, "rstudio_bioconductor_321": 12, "vscode_cli_tunnel": 6}
+
+
+def check_disk(app):
+    free = os.statvfs(STATE).f_bavail * os.statvfs(STATE).f_frsize / 1e9
+    if free < NEED_GB.get(app, 10):
+        raise RuntimeError(f"only {free:.0f} GB free in {STATE}; building {app} needs about "
+                           f"{NEED_GB.get(app, 10)} GB. Manual step: free disk space, then re-run.")
+
+
 def apptainer_build(sif, deffile, args, cwd):
+    # Keep apptainer's scratch and cache with the bot's state, not in /tmp
+    # (the host's /tmp is also what %post sees during a build).
+    env = {**os.environ, "APPTAINER_TMPDIR": str(STATE / "build/tmp"), "APPTAINER_CACHEDIR": str(STATE / "build/cache")}
+    (STATE / "build/tmp").mkdir(parents=True, exist_ok=True)
     cmd = ["apptainer", "build", "--force", "--fakeroot"]
     for k, v in args.items():
         cmd += ["--build-arg", f"{k}={v}"]
     log(f"building {sif.name} ({', '.join(f'{k}={v}' for k, v in args.items())})")
     with (STATE / "logs" / f"{RUN_ID}-build-{sif.stem}.log").open("w") as f:
-        p = subprocess.run(cmd + [str(sif), str(deffile)], cwd=cwd, stdout=f, stderr=subprocess.STDOUT)
+        p = subprocess.run(cmd + [str(sif), str(deffile)], cwd=cwd, env=env, stdout=f, stderr=subprocess.STDOUT)
+    subprocess.run(["rm", "-rf", str(STATE / "build/cache")])
     if p.returncode:
         raise RuntimeError(f"apptainer build failed, see {f.name}")
     return dict(l.split("=", 1) for l in run(["apptainer", "exec", str(sif), "cat", "/etc/ood-image-versions"]).split())
@@ -441,6 +456,7 @@ def release(plugin, rel):
     if remote_branch_exists(branch):
         log(f"[{plugin.app}] {branch} already exists (PR pending); skipping")
         return
+    check_disk(plugin.app)
     ctx = plugin.build_context() if hasattr(plugin, "build_context") else REPO / plugin.app
     sif = STATE / "build" / rel.image
     versions = apptainer_build(sif, REPO / plugin.app / rel.deffile, rel.build_args, ctx)
