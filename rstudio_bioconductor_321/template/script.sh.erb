@@ -11,18 +11,22 @@ setup_env () {
   # Additional environment which could be moved into a module
   # Change these to suit
 <%-
-  # Bioconductor version (form.yml bioc_version) => [image, per-user workdir].
+  # Version (form.yml bioc_version) => [image, per-user workdir].
   # The workdir holds the R user library, so it must differ per R version.
-  # 3.21 keeps its original workdir so existing users keep their packages, and
-  # is the fallback for sessions saved before the version field existed.
+  # 3.21 and ehmm keep the workdirs of the apps they came from, so existing
+  # users keep their packages; 3.21 is the fallback for sessions saved before
+  # the version field existed. New Bioconductor releases are added at the top
+  # by .github/release-bot.
   images = {
     "3.23" => ["/ijc/PUBLIC/DATA/images/bioconductor_3.23.sif",        "rstudio_server_bioconductor_3.23"],
     "3.21" => ["/ijc/PUBLIC/DATA/images/tidyverse_3.21-R-4.5.1.sif",   "rstudio_server_tidyverse_321"],
+    # eHMM (former "EHMM" app): Bioconductor 3.11, R 4.0.0, Ubuntu 18.04.
+    "ehmm" => ["/ijc/PUBLIC/DATA/images/inspect-ehmm-samtools_latest.sif", "rstudio_server_ehmm"],
   }
   image, workdir_name = images.fetch(context.bioc_version.to_s, images["3.21"])
 -%>
   export RSTUDIO_SERVER_IMAGE="<%= image %>"
-  echo "Bioconductor <%= context.bioc_version %>: ${RSTUDIO_SERVER_IMAGE}"
+  echo "Version <%= context.bioc_version %>: ${RSTUDIO_SERVER_IMAGE}"
   echo "hostname: `hostname`"
   module load singularity
   module load Python/3.8.5-GCCcore-11.2.0 

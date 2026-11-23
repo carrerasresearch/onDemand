@@ -5,4 +5,5 @@ subcategory: Servers
 role: batch_connect
 host: false  
 description: |
-  This app will launch a Jupyter Notebook server on one or more nodes.
+  JupyterLab with Cell Ranger, on CPU or GPU nodes. Choose the image
+  (CUDA and Python/PyTorch versions) in the launch form.
