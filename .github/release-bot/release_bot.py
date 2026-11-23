@@ -419,13 +419,46 @@ class VSCode:
                       (REPO / self.app / "template/script.sh.erb").read_text(), re.M)
         return [m.group(1)] if m else []   # [] = legacy unversioned image
 
+    # VS Code ships a minor release about every week, plus recovery patches.
+    # The image only provides the tunnel CLI (the editor installs its own
+    # matching server on connect), so update about once a quarter, to a minor
+    # release that has settled.
+    SETTLED_DAYS = 14   # newest patch of the chosen minor is at least this old
+    MAX_AGE_DAYS = 90   # update only once the offered version is this old
+
+    @staticmethod
+    def release_dates():
+        """{version: date} for VS Code stable releases (GitHub releases)."""
+        dates, page = {}, 1
+        while page <= 5:
+            rels = http_json(f"https://api.github.com/repos/microsoft/vscode/releases?per_page=100&page={page}")
+            if not rels:
+                break
+            for r in rels:
+                if re.fullmatch(r"\d+\.\d+\.\d+", r["tag_name"]) and not r.get("prerelease"):
+                    dates[r["tag_name"]] = dt.date.fromisoformat(r["published_at"][:10])
+            page += 1
+        return dates
+
     def detect(self):
-        latest = http_json("https://update.code.visualstudio.com/api/releases/stable")[0]
-        log(f"[{self.app}] offers {self.offered() or ['unversioned vscode-tunnel.sif']}; latest VS Code {latest}")
-        if latest in self.offered():
+        dates = self.release_dates()
+        today = dt.date.today()
+        num = lambda v: tuple(int(x) for x in v.split("."))
+        minors = {}
+        for v in dates:
+            minors.setdefault(num(v)[:2], []).append(v)
+        settled = [max(vs, key=num) for m, vs in minors.items()
+                   if (today - max(dates[v] for v in vs)).days >= self.SETTLED_DAYS]
+        target = max(settled, key=num)
+        cur = (self.offered() or [None])[0]
+        cur_age = (today - dates[cur]).days if cur in dates else None
+        log(f"[{self.app}] offers {cur or 'unversioned vscode-tunnel.sif'}"
+            f"{f' ({cur_age} days old)' if cur_age is not None else ''}; newest VS Code {max(dates, key=num)}, "
+            f"newest settled (>= {self.SETTLED_DAYS} days) {target}")
+        if cur and (num(cur) >= num(target) or (cur_age is not None and cur_age < self.MAX_AGE_DAYS)):
             return []
-        return [Release(latest, latest, f"vscode-tunnel_{latest}.sif", "vscode-tunnel.def",
-                        {"VSCODE_VERSION": latest}, f"VS Code CLI {latest}")]
+        return [Release(target, target, f"vscode-tunnel_{target}.sif", "vscode-tunnel.def",
+                        {"VSCODE_VERSION": target}, f"VS Code CLI {target}")]
 
     def patch(self, rel):
         f = REPO / self.app / "template/script.sh.erb"
