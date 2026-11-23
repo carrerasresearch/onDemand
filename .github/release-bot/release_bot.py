@@ -89,8 +89,14 @@ def poc(cmd, **kw):
     return cluster(f"ssh -o BatchMode=yes -o ConnectTimeout=20 {cfg['POC_HOST']} {shlex.quote(cmd)}", **kw)
 
 
+# Where tests run: the ood-poc portal and the POC cluster (default, used by
+# every release), or production (--target production: the production portal's
+# files, jobs on SSH_HOST; --gpu: Jupyter on the GPU partition).
+TARGET = {"name": "ood-poc", "ns": "ood-poc", "gpu": False}
+
+
 def kube_poc(cmd):
-    return run(["ssh", "-o", "BatchMode=yes", cfg["KUBE_HOST"], f"kubectl -n ood-poc {cmd}"])
+    return run(["ssh", "-o", "BatchMode=yes", cfg["KUBE_HOST"], f"kubectl -n {TARGET['ns']} {cmd}"])
 
 
 def notify(subject, body):
@@ -203,8 +209,8 @@ def poc_file(app, rel):
     return kube_poc(f"exec deploy/ood-portal -c ood-container -- cat /var/www/ood/apps/sys/{app}/{rel}")
 
 
-def poc_job(name, files, sbatch, timeout_min=30):
-    """Run a test job on the POC cluster with the given files; return its output."""
+def poc_job(name, files, sbatch, timeout_min=30, extra=""):
+    """Run a test job on the target cluster with the given files; return its output."""
     d = f"ood_release_bot_{name}_{RUN_ID}"
     local = STATE / "jobs" / d
     local.mkdir(parents=True)
@@ -219,11 +225,14 @@ def poc_job(name, files, sbatch, timeout_min=30):
     # Homes are shared between the login hosts; tar cannot run on SSH_HOST.
     cluster(f"mkdir -p {d}")
     run(f"scp -qr {shlex.quote(str(local))}/. {cfg['SSH_HOST']}:{d}/")
-    sb = cfg["POC_SLURM_BIN"]
-    job = poc(f"cd {d} && {sb}/sbatch --parsable -p {cfg['POC_PARTITION']} -J ood_release_bot_{name} -t {timeout_min} -o test.out test.sbatch").strip().splitlines()[-1]
-    log(f"POC job {job} ({name})")
+    if TARGET["name"] == "production":
+        on, sb, part = cluster, "", TARGET["partition"]
+    else:
+        on, sb, part = poc, cfg["POC_SLURM_BIN"] + "/", cfg["POC_PARTITION"]
+    job = on(f"cd {d} && {sb}sbatch --parsable -p {part} {extra} -J ood_release_bot_{name} -t {timeout_min} -o test.out test.sbatch").strip().splitlines()[-1]
+    log(f"{TARGET['name']} job {job} ({name}, partition {part})")
     for _ in range(timeout_min * 4 + 60):
-        if not poc(f"{sb}/squeue -h -j {job} 2>/dev/null || true").strip():
+        if not on(f"{sb}squeue -h -j {job} 2>/dev/null || true").strip():
             break
         time.sleep(15)
     out = cluster(f"cat {d}/test.out 2>/dev/null || true")
@@ -492,8 +501,9 @@ class Jupyter:
                                   "images table in script.sh.erb"))
 
     def poc_test(self, key):
+        gpu = TARGET["gpu"]
         script = render_erb(REPO / self.app, poc_file(self.app, "template/script.sh.erb"),
-                            {"jupyter_image": key, "use_gpu": cfg["POC_PARTITION"]})
+                            {"jupyter_image": key, "use_gpu": "Yes (GPU)" if gpu else "No (CPU node)"})
         m = re.search(r'export JUPYTERLAB_IMAGE="([^"]+)"', script)
         if not m or f'echo "Image {key}:' not in script:
             raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
@@ -513,17 +523,25 @@ EOL
 module load singularity >/dev/null 2>&1
 # Same environment as the app: --cleanenv and the conda env activated.
 singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import zmq, jupyterlab, numpy, torch; print(\"imports: torch\", torch.__version__, \"cuda\", torch.version.cuda, \"jupyterlab\", jupyterlab.__version__)"'
+if [ -n "$TEST_GPU" ]; then
+singularity exec --nv --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import zmq, torch, torchvision; ok = torch.cuda.is_available(); print(\"gpu:\", ok, torch.cuda.get_device_name(0) if ok else \"\"); x = torch.rand(2000, 2000, device=\"cuda\"); print(\"gpu_matmul:\", bool((x @ x).sum() > 0)); b = torch.tensor([[0., 0, 10, 10], [1, 1, 11, 11]], device=\"cuda\"); print(\"gpu_nms:\", torchvision.ops.nms(b, torch.tensor([0.9, 0.8], device=\"cuda\"), 0.5).tolist())"' 2>&1 | tail -4
+fi
 singularity exec --cleanenv "%s" bash --norc -c 'export PATH=/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:$PATH; cellranger --version; cellranger-arc --version' 2>&1 | sed 's/^/cellranger: /'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
 pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
-""" % (m.group(1), m.group(1))
-        job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch)
+""" % (m.group(1), m.group(1), m.group(1))
+        if gpu:
+            sbatch = sbatch.replace("cd \"$SLURM_SUBMIT_DIR\"\n", "cd \"$SLURM_SUBMIT_DIR\"\nexport TEST_GPU=1\n", 1)
+        job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch,
+                           extra="--gres=gpu:1" if gpu else "")
         ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
               and re.search(r"^cellranger: cellranger (cellranger-)?\d+\.\d+\.\d+", out, re.M)
               and re.search(r"^cellranger: cellranger-arc (cellranger-arc-)?\d+\.\d+\.\d+", out, re.M))
+        if gpu:
+            ok = ok and re.search(r"^gpu: True", out, re.M) and "gpu_matmul: True" in out and "gpu_nms: [0]" in out
         return bool(ok), job, out
 
 
@@ -620,7 +638,7 @@ PLUGINS = {p.app: p for p in (RStudio(), Jupyter(), VSCode())}
 
 # --------------------------------------------------------------------------- flow
 def summary_of(out):
-    keep = r"^(node=|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:)"
+    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:)"
     return "\n".join(l[:160] for l in out.splitlines() if re.match(keep, l))
 
 
@@ -689,6 +707,9 @@ def main():
     ap.add_argument("--test-existing", metavar="APP:VERSION")
     ap.add_argument("--ref", default="master", help="onDemand ref to test or dry-run against")
     ap.add_argument("--onto", metavar="BRANCH", help="add new versions onto this existing branch (no PR, no email)")
+    ap.add_argument("--target", choices=["ood-poc", "production"], default="ood-poc",
+                    help="with --test-existing: test what this portal serves, on its cluster")
+    ap.add_argument("--gpu", action="store_true", help="with --test-existing jupyter:... on production: use a GPU node")
     a = ap.parse_args()
     if a.onto:
         a.ref = a.onto
@@ -715,12 +736,16 @@ def main():
         try:
             checkout(a.ref)
             key = resolve_key(app, key)
-            publish_to_poc(a.ref)
+            if a.target == "production":
+                TARGET.update(name="production", ns="production", gpu=a.gpu,
+                              partition=cfg.get("PROD_GPU_PARTITION", "test-gpu") if a.gpu else cfg.get("PROD_PARTITION", "test2"))
+            else:
+                publish_to_poc(a.ref)
             ok, job, out = plugin.poc_test(key)
         except Exception as e:
             notify(f"release bot: ood-poc test of {app}:{key} FAILED", f"{e}\n\n{traceback.format_exc()}")
             raise
-        log(f"ood-poc test of {app}:{key}: {'passed' if ok else 'FAILED'}\n{summary_of(out)}")
+        log(f"{TARGET['name']}{' GPU' if TARGET['gpu'] else ''} test of {app}:{key}: {'passed' if ok else 'FAILED'}\n{summary_of(out)}")
         if not ok:  # only failures need the maintainer
             notify(f"release bot: ood-poc test of {app}:{key} FAILED",
                    f"Test run only (--test-existing {app}:{key}, ref {a.ref}); nothing was built or changed.\n"
