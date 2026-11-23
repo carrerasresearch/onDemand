@@ -1,5 +1,16 @@
+# VS Code CLI (tunnel) + Slurm 20.11 client, for the OnDemand "VS Code Tunnel" app.
+#
+# Build:  apptainer build --fakeroot --build-arg VSCODE_VERSION=1.106.2 \
+#             vscode-tunnel_1.106.2.sif vscode-tunnel.def
+#         (VSCODE_VERSION=latest takes the newest stable release)
+# Deploy: cp vscode-tunnel_<version>.sif /ijc/PUBLIC/DATA/images/ and point
+#         template/script.sh.erb at it (.github/release-bot does both).
+
 Bootstrap: docker
 From: ubuntu:24.04
+
+%arguments
+    VSCODE_VERSION=latest
 
 %post
     # Install dependencies and tools
@@ -59,7 +70,7 @@ From: ubuntu:24.04
 
     # DOWNLOAD THE VS CODE CLI
     export VSCODE_CLI_TAR="vscode_cli.tar.gz"
-    curl -Lk 'https://update.code.visualstudio.com/latest/cli-linux-x64/stable' --output $VSCODE_CLI_TAR
+    curl -fL 'https://update.code.visualstudio.com/{{ VSCODE_VERSION }}/cli-linux-x64/stable' --output $VSCODE_CLI_TAR
 
     # EXTRACT the code executable directly into the root directory (/)
     # The container build process is usually writable at the root during %post
@@ -69,6 +80,10 @@ From: ubuntu:24.04
     mkdir -p /usr/container/bin
     mv /code /usr/container/bin/code
     chmod +x /usr/container/bin/code
+
+    # Record versions, for users and for the release bot.
+    echo "vscode=$(/usr/container/bin/code --version | head -1 | awk '{print $2}')" > /etc/ood-image-versions
+    cat /etc/ood-image-versions
 
     #  Clean up
     rm $VSCODE_CLI_TAR
