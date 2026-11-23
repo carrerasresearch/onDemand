@@ -1,0 +1,15 @@
+# Bioconductor 3.21 / R 4.5.1 image used by the "RStudio Bioconductor" app (version 3.21).
+#
+# Recovered from the deployed image (`singularity inspect --deffile`) on
+# 2026-11-23: it is a plain pull of Bioconductor's tidyverse image, nothing added.
+# Built 2025-10-10 with singularity 3.11.4; the upstream tag was created 2025-10-06.
+#
+# Build:  singularity build tidyverse_3.21-R-4.5.1.sif tidyverse_3.21-R-4.5.1.def
+# Deploy: cp tidyverse_3.21-R-4.5.1.sif /ijc/PUBLIC/DATA/images/
+#
+# Note: the tag is not immutable; rebuilding today may give a newer RStudio or
+# patched system libraries than the deployed image. New versions are built from
+# rstudio_bioconductor.def instead.
+
+Bootstrap: docker
+From: bioconductor/tidyverse:3.21-R-4.5.1

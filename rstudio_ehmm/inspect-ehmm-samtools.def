@@ -1,0 +1,34 @@
+# eHMM (enhancer HMM) + samtools + cwltool, for the OnDemand "EHMM" app.
+#
+# Recovered on 2026-11-23 by inspecting the deployed image
+# /ijc/PUBLIC/DATA/images/inspect-ehmm-samtools_latest.sif. The image was pulled
+# from a local registry (10.110.20.108:5000/inspect-ehmm-samtools) whose
+# Dockerfile was never committed. Its layers are:
+#
+#   1. bioconductor/bioconductor_docker:RELEASE_3_11
+#      (Ubuntu 18.04, R 4.0.0, Bioconductor 3.11, RStudio Server)
+#   2. bigdatainbiomedicine/inspect-ehmm (2023-12): the Dockerfile shipped in
+#      /install of the image, from https://github.com/nictru/ehmm at
+#      eedf229b1e296b65201c3fad48fb41bb1fe023f1. It installs devtools and
+#      IRanges, GenomicRanges, bamsignals, rtracklayer, Rsamtools, edgeR, affyPLM,
+#      then ehmm itself, with the CLI launcher at /usr/local/bin/ehmm.
+#   3. (2025-08-05, the part that was missing) apt packages samtools and cwltool.
+#
+# Build:  singularity build inspect-ehmm-samtools_latest.sif inspect-ehmm-samtools.def
+# Deploy: cp inspect-ehmm-samtools_latest.sif /ijc/PUBLIC/DATA/images/
+#
+# Bioconductor 3.11 / Ubuntu 18.04 are long out of support: keep this image for
+# reproducing eHMM results; do not add new tools here.
+
+Bootstrap: docker
+From: bigdatainbiomedicine/inspect-ehmm:latest
+
+%post
+    set -eu
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y samtools cwltool
+    rm -rf /var/lib/apt/lists/*
+
+%runscript
+    exec "$@"

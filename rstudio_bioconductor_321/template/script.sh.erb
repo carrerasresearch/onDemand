@@ -10,7 +10,18 @@ export HOME="${HOME}"
 setup_env () {
   # Additional environment which could be moved into a module
   # Change these to suit
-  export RSTUDIO_SERVER_IMAGE="/ijc/PUBLIC/DATA/images/tidyverse_3.21-R-4.5.1.sif"
+<%-
+  # Bioconductor version (form.yml bioc_version) => [image, per-user workdir].
+  # The workdir holds the R user library, so it must differ per R version.
+  # 3.21 keeps its original workdir so existing users keep their packages.
+  images = {
+    "3.23" => ["/ijc/PUBLIC/DATA/images/bioconductor_3.23.sif",        "rstudio_server_bioconductor_3.23"],
+    "3.21" => ["/ijc/PUBLIC/DATA/images/tidyverse_3.21-R-4.5.1.sif",   "rstudio_server_tidyverse_321"],
+  }
+  image, workdir_name = images.fetch(context.bioc_version.to_s, images["3.23"])
+-%>
+  export RSTUDIO_SERVER_IMAGE="<%= image %>"
+  echo "Bioconductor <%= context.bioc_version %>: ${RSTUDIO_SERVER_IMAGE}"
   echo "hostname: `hostname`"
   module load singularity
   module load Python/3.8.5-GCCcore-11.2.0 
@@ -27,7 +38,7 @@ export RSTUDIO_AUTH="${PWD}/bin/auth"
 
 # Temporary directory to be populated with directories to bind-mount in the container
 # where writable file systems are necessary. 
-workdir="${HOME}/rstudio_server_tidyverse_321"
+workdir="${HOME}/<%= workdir_name %>"
 mkdir -p -m 700 $workdir
 
 # Bindings

@@ -1,0 +1,53 @@
+# RStudio Server + Bioconductor + tidyverse, for the OnDemand "RStudio Bioconductor" app.
+#
+# Build (one image per Bioconductor release; BIOC_TAG is a tag of
+# https://hub.docker.com/r/bioconductor/tidyverse, form <bioc>-R-<r>):
+#   apptainer build --fakeroot --build-arg BIOC_TAG=3.23-R-4.6.1 \
+#       bioconductor_3.23.sif rstudio_bioconductor.def
+# Deploy:
+#   cp bioconductor_3.23.sif /ijc/PUBLIC/DATA/images/
+#   then add the version to form.yml (bioc_version) and template/script.sh.erb (images).
+#
+# Base: Bioconductor's official tidyverse image (rocker/tidyverse + Bioconductor),
+# the same family as the original tidyverse_3.21-R-4.5.1.sif
+# (see tidyverse_3.21-R-4.5.1.def). On top of it we upgrade RStudio Server to
+# a pinned Posit release: the base ships whatever RStudio was current
+# when Bioconductor built it, which can be months old.
+#
+# The OOD app runs /usr/lib/rstudio-server/bin/rserver directly via
+# `singularity run <image> <cmd>`, so the runscript just execs its arguments;
+# the s6 /init of the rocker image is not used.
+
+Bootstrap: docker
+From: bioconductor/tidyverse:{{ BIOC_TAG }}
+
+%arguments
+    BIOC_TAG=3.23-R-4.6.1
+    RSTUDIO_VERSION=2026.11.0+203
+
+%post
+    set -eu
+    export DEBIAN_FRONTEND=noninteractive
+
+    # Pinned RStudio Server (open-source build). To move to a newer release, set
+    # it to the version of https://posit.co/download/rstudio-server/ (or "stable").
+    RSTUDIO_VERSION={{ RSTUDIO_VERSION }} /rocker_scripts/install_rstudio.sh
+
+    # Record versions, for users and for whoever rebuilds this.
+    {
+        echo "base=bioconductor/tidyverse:{{ BIOC_TAG }}"
+        echo "bioconductor=$(Rscript -e 'cat(as.character(BiocManager::version()))')"
+        echo "r=$(Rscript -e 'cat(as.character(getRversion()))')"
+        echo "rstudio=$(dpkg-query -W -f='${Version}' rstudio-server)"
+    } > /etc/ood-image-versions
+    cat /etc/ood-image-versions
+
+    # Never clean /tmp here: during `apptainer build` it is the HOST's /tmp.
+    rm -rf /var/lib/apt/lists/*
+
+%labels
+    org.ijc.ood.app rstudio_bioconductor
+    org.ijc.ood.base bioconductor/tidyverse:{{ BIOC_TAG }}
+
+%runscript
+    exec "$@"
