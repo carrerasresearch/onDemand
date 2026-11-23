@@ -17,6 +17,7 @@ attributes:
     # OOD remembers each user's last choice.
     value: "cuda11"
     options:
+      - ["2026.11 (Python 3.12, JupyterLab 4.6, PyTorch 2.14, Cell Ranger 10.1)", "2026.11"]
       - ["CUDA 13 (Python 3.12, JupyterLab 4.5, PyTorch 2.10)", "cuda13"]
       - ["CUDA 11 (Python 3.10, JupyterLab 4.4, PyTorch 1.12)", "cuda11"]
     help: |

@@ -9,6 +9,7 @@ setup_env () {
   # Image (form.yml jupyter_image) => SIF. cuda11 is the fallback for sessions
   # saved before the image field existed.
   images = {
+    "2026.11" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger_2026.11.sif",
     "cuda13" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif",
     "cuda11" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif",
   }
