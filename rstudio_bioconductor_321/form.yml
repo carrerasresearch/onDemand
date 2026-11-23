@@ -5,6 +5,10 @@ attributes:
   bioc_version:
     label: "Bioconductor version"
     widget: "select"
+    # Default stays 3.21 so existing users keep their R version and packages;
+    # OOD remembers each user's last choice. Switch to the newest release once
+    # it has been announced.
+    value: "3.21"
     options:
       - ["3.23 (R 4.6, RStudio 2026.11)", "3.23"]
       - ["3.21 (R 4.5.1)", "3.21"]
