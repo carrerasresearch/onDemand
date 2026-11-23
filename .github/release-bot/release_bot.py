@@ -362,13 +362,47 @@ class Jupyter:
             raise RuntimeError(f"no torch {m.group(2)}.{m.group(3)}.x release for torchvision {tv}")
         return same_minor[-1], tv
 
+    CELLRANGER = {"cellranger-9.0.1.tar": "cellranger-9.0.1", "cellranger-arc-2.0.2.tar": "cellranger-arc-2.0.2"}
+    # Image whose /opt has the same Cell Ranger releases installed (the source
+    # tarballs come from 10x's signed links and cannot be downloaded unattended).
+    CELLRANGER_FALLBACK_IMAGE = "jupyter-cellranger-gpu-cuda-13.sif"
+
     def build_context(self):
-        """The .def copies the Cell Ranger tarballs from the build directory."""
+        """The .def copies the Cell Ranger tarballs from the build directory.
+
+        Uses the copies in IMAGES if they are intact; otherwise re-creates
+        them from the Cell Ranger installed in an existing image and emails
+        the maintainer that the copies in IMAGES are damaged.
+        """
         d = STATE / "build" / "jupyter-ctx"
         d.mkdir(parents=True, exist_ok=True)
-        for tar in ("cellranger-9.0.1.tar", "cellranger-arc-2.0.2.tar"):
-            if not (d / tar).exists():
-                run(["scp", "-q", f"{cfg['SSH_HOST']}:{IMAGES}/{tar}", str(d / tar)])
+        intact = lambda p: subprocess.run(["gzip", "-t", str(p)], capture_output=True).returncode == 0
+        damaged = []
+        for tar, opt_dir in self.CELLRANGER.items():
+            p = d / tar
+            if p.exists() and intact(p):
+                continue
+            run(["scp", "-q", f"{cfg['SSH_HOST']}:{IMAGES}/{tar}", str(p)])
+            if intact(p):
+                continue
+            damaged.append(tar)
+            src = STATE / "build" / self.CELLRANGER_FALLBACK_IMAGE
+            if not src.exists():
+                log(f"{IMAGES}/{tar} is damaged; copying {self.CELLRANGER_FALLBACK_IMAGE} to re-create it")
+                run(["scp", "-q", f"{cfg['SSH_HOST']}:{IMAGES}/{self.CELLRANGER_FALLBACK_IMAGE}", str(src)])
+            log(f"re-creating {tar} from /opt/{opt_dir} in {src.name}")
+            with p.open("wb") as out:
+                subprocess.run(["apptainer", "exec", str(src), "tar", "-C", "/opt", "-czf", "-", opt_dir],
+                               stdout=out, check=True)
+            if not intact(p):
+                raise RuntimeError(f"re-created {p} is not a valid archive")
+        if damaged:
+            notify("release bot: Cell Ranger archives in the images folder are damaged",
+                   f"These files in {IMAGES} fail 'gzip -t' (truncated or corrupt):\n  " + "\n  ".join(damaged) +
+                   f"\n\nThe build used copies re-created from the Cell Ranger installed in "
+                   f"{self.CELLRANGER_FALLBACK_IMAGE} (same releases), kept in {d}.\n\n"
+                   f"Manual step: replace the files in {IMAGES} with fresh downloads from 10x Genomics "
+                   f"(or with the re-created copies in {d}), so future builds can use them.")
         return d
 
     def patch(self, rel):
@@ -402,14 +436,17 @@ EOL
 module load singularity >/dev/null 2>&1
 # Same environment as the app: --cleanenv and the conda env activated.
 singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import zmq, jupyterlab, numpy, torch; print(\"imports: torch\", torch.__version__, \"cuda\", torch.version.cuda, \"jupyterlab\", jupyterlab.__version__)"'
+singularity exec --cleanenv "%s" bash --norc -c 'export PATH=/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:$PATH; cellranger --version; cellranger-arc --version' 2>&1 | sed 's/^/cellranger: /'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
 pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
-""" % m.group(1)
+""" % (m.group(1), m.group(1))
         job, out = poc_job(f"jupyter_{key}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch)
         ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
-              and "lab: 200 True" in out and "kernel: idle" in out)
+              and "lab: 200 True" in out and "kernel: idle" in out
+              and re.search(r"^cellranger: cellranger cellranger-9\.0\.1", out, re.M)
+              and re.search(r"^cellranger: cellranger-arc cellranger-arc-2\.0\.2", out, re.M))
         return bool(ok), job, out
 
 
@@ -505,7 +542,7 @@ PLUGINS = {p.app: p for p in (RStudio(), Jupyter(), VSCode())}
 
 # --------------------------------------------------------------------------- flow
 def summary_of(out):
-    keep = r"^(node=|listening|sign_in|do_sign_in|ide:|rsession:|imports:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:)"
+    keep = r"^(node=|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:)"
     return "\n".join(l[:160] for l in out.splitlines() if re.match(keep, l))
 
 
