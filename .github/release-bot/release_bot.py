@@ -472,9 +472,15 @@ def summary_of(out):
     return "\n".join(l[:160] for l in out.splitlines() if re.match(keep, l))
 
 
-def release(plugin, rel):
-    branch = f"release-bot/{plugin.app}-{rel.key}"
-    if remote_branch_exists(branch):
+def release(plugin, rel, onto=None):
+    """Build, upload, add and POC-test one release.
+
+    Normally on a new branch off master, ending in a PR. With onto=BRANCH the
+    version is committed onto that existing branch instead (e.g. a PR still
+    in review) and no PR or email is made; failures still raise.
+    """
+    branch = onto or f"release-bot/{plugin.app}-{rel.key}"
+    if not onto and remote_branch_exists(branch):
         log(f"[{plugin.app}] {branch} already exists (PR pending); skipping")
         return
     check_disk(plugin.app)
@@ -485,12 +491,13 @@ def release(plugin, rel):
     sha = upload(sif, rel.image)
     sif.unlink()
 
-    run(["git", "checkout", "-q", "-b", branch], cwd=REPO)
+    if not onto:
+        run(["git", "checkout", "-q", "-b", branch], cwd=REPO)
     plugin.patch(rel)
     run(["git", "-c", "user.name=ood release bot", "commit", "-qam",
          f"{plugin.title}: add {rel.summary}\n\nImage {IMAGES}/{rel.image} (sha256 {sha}), built by "
          f".github/release-bot from {plugin.app}/{rel.deffile} and tested on ood-poc."], cwd=REPO)
-    run(["git", "push", "-q", "-u", "origin", branch], cwd=REPO)
+    run(["git", "push", "-q", "origin", f"HEAD:refs/heads/{branch}"], cwd=REPO)
 
     publish_to_poc(branch)
     ok, job, out = plugin.poc_test(rel.key)
@@ -498,6 +505,10 @@ def release(plugin, rel):
     if not ok:
         raise RuntimeError(f"ood-poc test of {rel.summary} failed (POC job {job}).\nBranch {branch} and image "
                            f"{IMAGES}/{rel.image} were left in place.\n\n{out}")
+    if onto:
+        log(f"[{plugin.app}] added {rel.summary} onto {onto}; ood-poc test passed (job {job})\n"
+            f"{image_versions}\n{summary_of(out)}")
+        return
     body = (f"Automated by `.github/release-bot/release_bot.py`.\n\n"
             f"- Image: `{IMAGES}/{rel.image}` (sha256 `{sha}`), built from `{plugin.app}/{rel.deffile}` "
             f"with {', '.join(f'`{k}={v}`' for k, v in rel.build_args.items())}\n"
@@ -523,9 +534,12 @@ def main():
     ap.add_argument("--only", choices=sorted(PLUGINS))
     ap.add_argument("--test-existing", metavar="APP:VERSION")
     ap.add_argument("--ref", default="master", help="onDemand ref to test or dry-run against")
+    ap.add_argument("--onto", metavar="BRANCH", help="add new versions onto this existing branch (no PR, no email)")
     a = ap.parse_args()
-    if a.ref != "master" and not (a.dry_run or a.test_existing):
-        sys.exit("--ref is only for --dry-run and --test-existing; releases always start from master")
+    if a.onto:
+        a.ref = a.onto
+    elif a.ref != "master" and not (a.dry_run or a.test_existing):
+        sys.exit("--ref is only for --dry-run and --test-existing; releases start from master (or use --onto)")
 
     (STATE / "logs").mkdir(parents=True, exist_ok=True)
     (STATE / "build").mkdir(parents=True, exist_ok=True)
@@ -567,8 +581,8 @@ def main():
             for rel in plugin.detect():
                 log(f"[{name}] new: {rel.summary} -> {rel.image}")
                 if not a.dry_run:
-                    release(plugin, rel)
-                    checkout("master")
+                    release(plugin, rel, onto=a.onto)
+                    checkout(a.ref)
         except Exception as e:
             failed = True
             log(f"[{name}] FAILED: {e}")
