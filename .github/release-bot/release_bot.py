@@ -397,7 +397,7 @@ c.ServerApp.disable_check_xsrf = True
 EOL
 module load singularity >/dev/null 2>&1
 # Same environment as the app: --cleanenv and the conda env activated.
-singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import torch, jupyterlab, numpy, zmq; print(\"imports: torch\", torch.__version__, \"cuda\", torch.version.cuda, \"jupyterlab\", jupyterlab.__version__)"'
+singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import zmq, jupyterlab, numpy, torch; print(\"imports: torch\", torch.__version__, \"cuda\", torch.version.cuda, \"jupyterlab\", jupyterlab.__version__)"'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
