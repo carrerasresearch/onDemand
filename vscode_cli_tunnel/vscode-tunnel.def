@@ -34,7 +34,7 @@ From: ubuntu:24.04
     # exacta para los plugins, así que template/script.sh.erb quita PluginDir del
     # slurm.conf del nodo y el cliente usa los plugins de esta build (/usr/lib/slurm).
     # Cualquier 20.11.x habla el mismo protocolo con el controlador.
-    wget -q "https://download.schedmd.com/slurm/slurm-${SLURM_VERSION}.tar.bz2" -O /tmp/slurm.tar.bz2
+    wget -q --timeout=60 --tries=5 "https://download.schedmd.com/slurm/slurm-${SLURM_VERSION}.tar.bz2" -O /tmp/slurm.tar.bz2
 
     mkdir -p /opt/${SLURM_DIR}
     tar -xf /tmp/slurm.tar.bz2 -C /opt/${SLURM_DIR} --strip-components 1
@@ -70,7 +70,7 @@ From: ubuntu:24.04
 
     # DOWNLOAD THE VS CODE CLI
     export VSCODE_CLI_TAR="vscode_cli.tar.gz"
-    curl -fL 'https://update.code.visualstudio.com/{{ VSCODE_VERSION }}/cli-linux-x64/stable' --output $VSCODE_CLI_TAR
+    curl -fL --retry 5 --connect-timeout 30 --max-time 900 'https://update.code.visualstudio.com/{{ VSCODE_VERSION }}/cli-linux-x64/stable' --output $VSCODE_CLI_TAR
 
     # EXTRACT the code executable directly into the root directory (/)
     # The container build process is usually writable at the root during %post

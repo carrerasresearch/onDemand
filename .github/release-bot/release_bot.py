@@ -148,7 +148,11 @@ def apptainer_build(sif, deffile, args, cwd):
         cmd += ["--build-arg", f"{k}={v}"]
     log(f"building {sif.name} ({', '.join(f'{k}={v}' for k, v in args.items())})")
     with (STATE / "logs" / f"{RUN_ID}-build-{sif.stem}.log").open("w") as f:
-        p = subprocess.run(cmd + [str(sif), str(deffile)], cwd=cwd, env=env, stdout=f, stderr=subprocess.STDOUT)
+        try:
+            p = subprocess.run(cmd + [str(sif), str(deffile)], cwd=cwd, env=env, stdout=f, stderr=subprocess.STDOUT,
+                               timeout=2 * 3600)
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"apptainer build of {sif.name} took more than 2 h (stuck download?), see {f.name}")
     subprocess.run(["rm", "-rf", str(STATE / "build/cache")])
     if p.returncode:
         raise RuntimeError(f"apptainer build failed, see {f.name}")
