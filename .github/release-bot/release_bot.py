@@ -144,12 +144,34 @@ def check_disk(app):
                            f"{NEED_GB.get(app, 10)} GB. Manual step: free disk space, then re-run.")
 
 
+def userns_wrapper():
+    """Prefix that lets `apptainer build --fakeroot` work from the systemd timer.
+
+    Ubuntu's AppArmor only lets a program make an unprivileged user namespace
+    with capabilities if a profile allows it. apptainer ships one for its
+    starter, but for a user without /etc/subuid ranges the build makes its
+    root-mapped namespace from the apptainer command itself, which has none,
+    and %post dies at once with "Could not write info to setgroups: Permission
+    denied". It works from a terminal in desktop VS Code only because VS Code's
+    profile allows it and child processes inherit that. So when this process
+    has no profile, run the build under apptainer's.
+    """
+    try:
+        restricted = Path("/proc/sys/kernel/apparmor_restrict_unprivileged_userns").read_text().strip() == "1"
+        label = Path("/proc/self/attr/current").read_text().strip("\x00\n ")
+    except OSError:
+        return []
+    if restricted and label == "unconfined" and Path("/etc/apparmor.d/apptainer").exists():
+        return ["aa-exec", "-p", "apptainer", "--"]
+    return []
+
+
 def apptainer_build(sif, deffile, args, cwd):
     # Keep apptainer's scratch and cache with the bot's state, not in /tmp
     # (the host's /tmp is also what %post sees during a build).
     env = {**os.environ, "APPTAINER_TMPDIR": str(STATE / "build/tmp"), "APPTAINER_CACHEDIR": str(STATE / "build/cache")}
     (STATE / "build/tmp").mkdir(parents=True, exist_ok=True)
-    cmd = ["apptainer", "build", "--force", "--fakeroot"]
+    cmd = userns_wrapper() + ["apptainer", "build", "--force", "--fakeroot"]
     for k, v in args.items():
         cmd += ["--build-arg", f"{k}={v}"]
     log(f"building {sif.name} ({', '.join(f'{k}={v}' for k, v in args.items())})")
