@@ -53,7 +53,9 @@ public repo can run code from forks' pull requests.
 The workstation needs:
 
 - `apptainer` (with `--fakeroot`) and `docker`, which renders the ERB
-  templates with `ruby:3-slim`;
+  templates with `ruby:3-slim`. On Ubuntu, where AppArmor restricts
+  unprivileged user namespaces, the bot runs the build under apptainer's
+  AppArmor profile with `aa-exec` (package `apparmor`);
 - about 45 GB of free disk for a Jupyter build;
 - passwordless SSH to the cluster login host (uploads, the POC jump host,
   mail) and to the kubectl host (it checks what ood-poc serves);
