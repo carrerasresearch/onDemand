@@ -102,6 +102,9 @@ fi
 OOD_SLURM_BIND=""; OOD_SLURM_PATH=""
 [[ -f ./ood_slurm.sh ]] && source ./ood_slurm.sh && ood_slurm_setup "$SINGULARITY_IMAGE" "${OOD_SESSION_DIR:-$PWD}"
 [[ -n "$OOD_SLURM_PATH" ]] && export SINGULARITYENV_PREPEND_PATH="$OOD_SLURM_PATH"
+# Do not pass the host's `module` function into the container: the `module`
+# on PATH there (ood_slurm.sh) offers the cluster modules tested in this image.
+export -fn module ml 2>/dev/null || true
 
 # --- LAUNCH TUNNEL SERVICE (Background) ---
 # Launch the main tunnel service in the background (&).

@@ -9,4 +9,5 @@ done
 # Slurm in the containers of the apps with a terminal.
 for app in rstudio_bioconductor_321 jupyter vscode_cli_tunnel igv; do
   cp .github/ood-checks/ood_slurm.sh "$app/template/ood_slurm.sh"
+  cp .github/ood-checks/info.md.erb "$app/info.md.erb"
 done

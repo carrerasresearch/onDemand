@@ -37,6 +37,7 @@ EOT
 OOD_SLURM_BIND=""; OOD_SLURM_PATH=""
 [[ -f ./ood_slurm.sh ]] && source ./ood_slurm.sh && ood_slurm_setup "$IMAGE" "${OOD_SESSION_DIR}"
 [[ -n "$OOD_SLURM_PATH" ]] && export SINGULARITYENV_PREPEND_PATH="$OOD_SLURM_PATH"
+export -fn module ml 2>/dev/null || true
 
 # 5. Launch inside Singularity
 # We bind the BeeGFS as Read-Only (:ro) so other users can't break it

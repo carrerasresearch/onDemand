@@ -45,7 +45,9 @@ mkdir -p -m 700 "$workdir/run" "$workdir/tmp" "$workdir/R/user-libs"
 mkdir -p -m 700 "$workdir/python-libs"
 # Conda environments live in ~/.conda/envs, where conda puts them on the
 # cluster too, so the same envs work in every image, in VS Code and in Slurm
-# jobs. $workdir/conda-envs is where this app put them before; still listed.
+# jobs. Envs this app made before are still listed: $workdir/conda-envs was
+# meant for them, but conda does not split CONDA_ENVS_PATH on commas, so they
+# went to its fallback, then $workdir/dot-conda/envs (mounted over ~/.conda).
 mkdir -p -m 700 "$workdir/conda-envs"
 mkdir -p "${HOME}/.conda/envs"
 # Create a specific folder for jupyter-data
@@ -93,7 +95,7 @@ export SINGULARITYENV_PATH="${OOD_SLURM_PATH:+$OOD_SLURM_PATH:}/opt/cellranger:/
 # have a kernel the user registered get none. Writes only
 # $workdir/jupyter-data/kernels/ood-conda-*, and lists the envs outside
 # ~/.conda/envs in ~/.conda/environments.txt so the cluster's conda sees them.
-python3 - "${workdir}/jupyter-data/kernels" "${SINGULARITYENV_PATH}" "${HOME}/.conda/envs" "${workdir}/conda-envs" <<'EOF' || echo "warning: could not update the kernels of conda environments"
+python3 - "${workdir}/jupyter-data/kernels" "${SINGULARITYENV_PATH}" "${HOME}/.conda/envs" "${workdir}/conda-envs" "${workdir}/dot-conda/envs" <<'EOF' || echo "warning: could not update the kernels of conda environments"
 import glob, json, os, re, shutil, sys
 kdir, path_tail, dirs = sys.argv[1], sys.argv[2], sys.argv[3:]
 want = {}
@@ -182,7 +184,7 @@ singularity exec ${SINGULARITY_GPU_FLAG} --cleanenv \
   -B "${workdir}/dot-conda/condarc:${HOME}/.condarc" \
   --env R_LIBS_USER="${workdir}/R/user-libs" \
   --env PYTHONUSERBASE="${workdir}/python-libs" \
-  --env CONDA_ENVS_PATH="${HOME}/.conda/envs,/opt/conda/envs,${workdir}/conda-envs" \
+  --env CONDA_ENVS_PATH="${HOME}/.conda/envs:/opt/conda/envs:${workdir}/conda-envs:${workdir}/dot-conda/envs" \
   --env JUPYTER_DATA_DIR="${workdir}/jupyter-data" \
   --env SHELL="/bin/bash" \
   "${JUPYTERLAB_IMAGE}" \

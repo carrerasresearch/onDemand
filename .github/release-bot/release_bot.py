@@ -691,6 +691,65 @@ def latest_rstudio():
 PLUGINS = {p.app: p for p in (RStudio(), Jupyter(), VSCode())}
 
 
+# --------------------------------------------------------------------------- ood modules
+OOD_DIR = f"{IMAGES}/ood"
+HOST_MODULES_EVERY = dt.timedelta(days=7)
+
+
+def app_images():
+    """Every image the apps with a terminal offer (their script.sh.erb on the checkout)."""
+    out = []
+    for app in ("jupyter", "rstudio_bioconductor_321", "vscode_cli_tunnel", "igv"):
+        text = (REPO / app / "template/script.sh.erb").read_text()
+        out += re.findall(r'(/ijc/PUBLIC/DATA/images/[^"\s]+\.sif)', text)
+    return sorted(set(out))
+
+
+def publish_modules():
+    """`module load ood/<app>/<version>` for the images on the checkout (.github/ood-modules)."""
+    out = run([sys.executable, str(REPO / ".github/ood-modules/publish.py"), "--repo", str(REPO),
+               "--dest", OOD_DIR, "--ssh-host", cfg["SSH_HOST"]])
+    log(f"ood modules: {out.strip().splitlines()[-1] if out.strip() else 'published'}")
+
+
+HOST_MODULES_PUBLISH = r'''
+import os, shutil, sys
+src, dest = sys.argv[1], sys.argv[2]
+new, old = dest + ".new", dest + ".old"
+shutil.rmtree(new, ignore_errors=True)
+shutil.copytree(src, new)
+shutil.rmtree(old, ignore_errors=True)
+if os.path.exists(dest):
+    os.rename(dest, old)
+os.rename(new, dest)
+shutil.rmtree(old, ignore_errors=True)
+print("host-modules: published", len(os.listdir(dest)), "entries")
+'''
+
+
+def refresh_host_modules(force=False):
+    """Which cluster modules work inside each app image (host_modules.py, run as
+    a job on the POC cluster), published to OOD_DIR/host-modules. Weekly, and
+    whenever the set of images changes."""
+    images = app_images()
+    stamp = STATE / "host-modules.stamp"
+    prev = stamp.read_text().split("\n", 1) if stamp.exists() else ["", ""]
+    age = dt.datetime.now() - dt.datetime.fromtimestamp(stamp.stat().st_mtime) if stamp.exists() else None
+    if not force and prev[1:] == ["\n".join(images)] and age is not None and age < HOST_MODULES_EVERY:
+        return
+    log(f"host modules: testing the cluster's modules in {len(images)} images")
+    head = SBATCH_HEAD.replace("#SBATCH -c 2\n#SBATCH --mem=8G\n", "#SBATCH -c 8\n#SBATCH --mem=16G\n")
+    sbatch = (head + "module load singularity >/dev/null 2>&1\n"
+              f"/usr/bin/python3 -I ./host_modules.py \"$PWD/out\" {' '.join(shlex.quote(i) for i in images)}\n"
+              f"python3 - \"$PWD/out\" {shlex.quote(OOD_DIR + '/host-modules')} < ./publish_host_modules.py\n")
+    job, out = poc_job("host_modules", {"host_modules.py": REPO / ".github/ood-modules/host_modules.py",
+                                        "publish_host_modules.py": HOST_MODULES_PUBLISH}, sbatch, timeout_min=300)
+    if "host-modules: published" not in out:
+        raise RuntimeError(f"host_modules.py job {job} failed:\n{out[-3000:]}")
+    stamp.write_text(dt.datetime.now().isoformat() + "\n" + "\n".join(images))
+    log("host modules: " + "; ".join(l for l in out.splitlines() if "modules usable" in l))
+
+
 # --------------------------------------------------------------------------- flow
 def summary_of(out):
     keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:|usersite:|ood-slurm:)"
@@ -765,10 +824,12 @@ def main():
     ap.add_argument("--target", choices=["ood-poc", "production"], default="ood-poc",
                     help="with --test-existing: test what this portal serves, on its cluster")
     ap.add_argument("--gpu", action="store_true", help="with --test-existing jupyter:... on production: use a GPU node")
+    ap.add_argument("--publish-modules", action="store_true",
+                    help="only publish the ood modules and re-test the cluster modules in the images (from --ref)")
     a = ap.parse_args()
     if a.onto:
         a.ref = a.onto
-    elif a.ref != "master" and not (a.dry_run or a.test_existing):
+    elif a.ref != "master" and not (a.dry_run or a.test_existing or a.publish_modules):
         sys.exit("--ref is only for --dry-run and --test-existing; releases start from master (or use --onto)")
 
     (STATE / "logs").mkdir(parents=True, exist_ok=True)
@@ -784,6 +845,12 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         sys.exit("another release_bot.py run is in progress")
+
+    if a.publish_modules:
+        checkout(a.ref)
+        publish_modules()
+        refresh_host_modules(force=True)
+        return 0
 
     if a.test_existing:
         app, key = a.test_existing.split(":", 1)
@@ -808,6 +875,17 @@ def main():
         return 0 if ok else 1
 
     failed = False
+    if not a.dry_run and not a.onto and a.ref == "master" and not a.only:
+        for step in (publish_modules, refresh_host_modules):
+            try:
+                checkout("master")
+                step()
+            except Exception as e:
+                failed = True
+                log(f"[{step.__name__}] FAILED: {e}")
+                notify(f"release bot: {step.__name__} FAILED",
+                       f"{e}\n\nThe apps keep working; only `module load ood/...` or the cluster modules inside the "
+                       f"apps' containers are not updated.\n\n{traceback.format_exc()[-3000:]}")
     for name, plugin in PLUGINS.items():
         if a.only and name != a.only:
             continue

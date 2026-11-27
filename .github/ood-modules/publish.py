@@ -132,7 +132,8 @@ Before running an env's programs in a job, clear libraries other modules set:
 ]])
 depends_on("Miniconda3/24.7.1-0")
 setenv("CONDARC", pathJoin(root, "conda", "condarc"))
-setenv("CONDA_ENVS_PATH", pathJoin(os.getenv("HOME"), ".conda", "envs") .. ":" .. pathJoin(os.getenv("HOME"), "jupyterlab_ood", "conda-envs"))
+local home = os.getenv("HOME")
+setenv("CONDA_ENVS_PATH", pathJoin(home, ".conda", "envs") .. ":" .. pathJoin(home, "jupyterlab_ood", "conda-envs") .. ":" .. pathJoin(home, "jupyterlab_ood", "dot-conda", "envs"))
 if (mode() == "load") then
   execute{{cmd = 'source "$EBROOTMINICONDA3/etc/profile.d/conda.sh"', modeA = {{"load"}}}}
 end
@@ -204,7 +205,12 @@ def main():
         # Upload next to DEST, then move each file into place (the login node
         # cannot run mv/cp; python can) and drop generated files that are gone.
         stage = f"{a.dest}.upload-{os.getpid()}"
-        subprocess.run(["scp", "-q", "-r", str(out), f"{a.ssh_host}:{stage}"], check=True)
+        # (CIFS cannot take the files' Unix modes: scp's "setstat" complaints are expected.)
+        r = subprocess.run(["scp", "-q", "-r", str(out), f"{a.ssh_host}:{stage}"], capture_output=True, text=True)
+        noise = [l for l in r.stderr.splitlines() if "setstat" not in l]
+        if r.returncode and noise:
+            print("\n".join(noise), file=sys.stderr)
+            return 1
         py = f"""
 import os, shutil
 dest, stage, names = {a.dest!r}, {stage!r}, {names!r}

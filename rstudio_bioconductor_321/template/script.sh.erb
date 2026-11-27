@@ -79,7 +79,7 @@ fi
 <%- end -%>
 
 # Bindings
-export SINGULARITY_BINDPATH="${workdir}/run:/run,${workdir}/database.conf:/etc/rstudio/database.conf,${workdir}/rsession.sh:/etc/rstudio/rsession.sh,${workdir}/var/lib/rstudio-server:/var/lib/rstudio-server,/ijc:/ijc,/opt/ohpc:/opt/ohpc,/opt/software:/opt/software,/usr/local/bin/lua:/usr/local/bin/lua${OOD_SLURM_BIND:+,$OOD_SLURM_BIND}"
+export SINGULARITY_BINDPATH="${workdir}/run:/run,${workdir}/database.conf:/etc/rstudio/database.conf,${workdir}/rsession.sh:/etc/rstudio/rsession.sh,${workdir}/var/lib/rstudio-server:/var/lib/rstudio-server,/ijc:/ijc${OOD_SLURM_BIND:+,$OOD_SLURM_BIND}"
 
 mkdir -p -m 700 ${workdir}/run ${workdir}/tmp ${workdir}/var/lib/rstudio-server
 cat > ${workdir}/database.conf <<END
@@ -105,6 +105,9 @@ sed 's/^ \{2\}//' > "${RSESSION_WRAPPER_FILE}" << EOL
   export R_LIBS_USER=${workdir}/R/user-libs
   [ -f "${OOD_R_DIR}/Rprofile.site" ] && export R_PROFILE="${OOD_R_DIR}/Rprofile.site" OOD_R_HELPERS="${OOD_R_DIR}/ood.R" OOD_BIOC_MIRROR="${OOD_BIOC_MIRROR}"
   ${OOD_SLURM_PATH:+export PATH="${OOD_SLURM_PATH}:\$PATH"}
+  # The host's \`module\` would load cluster modules into the container and
+  # could break R; the one on PATH (ood_slurm.sh) offers the tested ones.
+  unset -f module ml 2>/dev/null
 
   # Launch the original command
   echo "Launching rsession..."
