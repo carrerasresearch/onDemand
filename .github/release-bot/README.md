@@ -27,7 +27,7 @@ For each new release it:
    | App | Checks |
    |---|---|
    | RStudio | sign-in, the IDE page, and an R session started with the right library |
-   | Jupyter | login, the API, the Lab page, a Python kernel reaching idle, that PyTorch imports, and (`probes/scverse.py`) scanpy, decoupler and a LIANA+ ranking on synthetic data |
+   | Jupyter | login, the API, the Lab page, a Python kernel reaching idle, that PyTorch imports, (`probes/scverse.py`) scanpy, decoupler and a LIANA+ ranking on synthetic data, and (`probes/usersite.py`) that a stale package in the user's pip folder does not override the image's |
    | VS Code | the CLI version, the tunnel CLI, and the Slurm client in the image (the tunnel itself needs an interactive Microsoft login) |
 4. if the test passes, opens a PR to `master` and emails the maintainer.
    Only that merge reaches production; it publishes in place, without a

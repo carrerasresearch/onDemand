@@ -73,6 +73,25 @@ From: nvidia/cuda:{{ CUDA_TAG }}
         "scanpy[leiden]" anndata mudata muon squidpy decoupler "liana[extras]" ipywidgets
     conda clean -afy
 
+    # Packages users install with `pip install --user` (the app points
+    # PYTHONUSERBASE at ~/jupyterlab_ood/python-libs) come after the image's,
+    # so an old copy there (say numpy 1.x) cannot break the image's stack.
+    # Packages the image does not have still load from the user's folder.
+    test ! -e /opt/conda/envs/jlab-env/lib/python{{ PYTHON_VERSION }}/site-packages/sitecustomize.py
+    cat > /opt/conda/envs/jlab-env/lib/python{{ PYTHON_VERSION }}/site-packages/sitecustomize.py <<'EOF'
+"""OnDemand image: the user's pip --user packages come after the image's own."""
+import os
+import site
+import sys
+
+if site.ENABLE_USER_SITE:
+    _user = os.path.abspath(site.getusersitepackages())
+    _hits = [p for p in sys.path if os.path.abspath(p) == _user]
+    for _p in _hits:
+        sys.path.remove(_p)
+    sys.path.extend(_hits)
+EOF
+
     # Record versions, for users and for the release bot.
     /opt/conda/envs/jlab-env/bin/python - > /etc/ood-image-versions <<'EOF'
 import sys, jupyterlab, numpy, torch, torchvision

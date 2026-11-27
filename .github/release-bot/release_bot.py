@@ -555,16 +555,19 @@ singularity exec --nv --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/prof
 fi
 # scverse stack (images that have it): scanpy, decoupler and LIANA+ on synthetic data.
 singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python ./scverse.py' 2>&1 | tail -40
+# Stale packages in the user's pip folder must not override the image's (images with sitecustomize.py).
+singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python ./usersite.py' 2>&1 | tail -5
 singularity exec --cleanenv "%s" bash --norc -c 'export PATH=/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:$PATH; cellranger --version; cellranger-arc --version' 2>&1 | sed 's/^/cellranger: /'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
 pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
-""" % ((m.group(1),) * 4)
+""" % ((m.group(1),) * 5)
         if gpu:
             sbatch = sbatch.replace("cd \"$SLURM_SUBMIT_DIR\"\n", "cd \"$SLURM_SUBMIT_DIR\"\nexport TEST_GPU=1\n", 1)
         job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py",
-                                                      "scverse.py": HERE / "probes/scverse.py"}, sbatch,
+                                                      "scverse.py": HERE / "probes/scverse.py",
+                                                      "usersite.py": HERE / "probes/usersite.py"}, sbatch,
                            extra="--gres=gpu:1" if gpu else "")
         ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
@@ -572,6 +575,7 @@ pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
               and re.search(r"^cellranger: cellranger-arc (cellranger-arc-)?\d+\.\d+\.\d+", out, re.M))
         # Images labelled with LIANA+ must pass the scverse check; others skip it.
         ok = ok and (re.search(r"^scverse: ok", out, re.M) if "LIANA+" in key else "scverse: FAILED" not in out)
+        ok = ok and re.search(r"^usersite: (ok|not protected)", out, re.M)
         if gpu:
             ok = ok and re.search(r"^gpu: True", out, re.M) and "gpu_matmul: True" in out and "gpu_nms: [0]" in out
         return bool(ok), job, out
@@ -670,7 +674,7 @@ PLUGINS = {p.app: p for p in (RStudio(), Jupyter(), VSCode())}
 
 # --------------------------------------------------------------------------- flow
 def summary_of(out):
-    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:)"
+    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:|usersite:)"
     return "\n".join(l[:160] for l in out.splitlines() if re.match(keep, l))
 
 
