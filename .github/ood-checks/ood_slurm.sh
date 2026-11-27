@@ -259,16 +259,15 @@ unload1() {
   grep -v -x -F "$m" "$STATE" > "$STATE.new"; mv "$STATE.new" "$STATE"
 }
 load1() {
-  local m n env roots c path made=() skipped=()
+  local m n env c path made=() skipped=()
   m=$(resolve "$1") || true
   if [[ -z "$m" ]]; then echo "module: '$1' is not available inside this app's container." >&2; others; return 1; fi
   n=${m%%/*}
   while read -r old; do [[ "${old%%/*}" == "$n" && "$old" != "$m" ]] && unload1 "$old"; done < "$STATE"
   env="$ENVDIR/$m.env"
-  roots=$(sed -n 's/^SET EBROOT[^=]*=//p' "$env")
-  for c in $(awk -F'\t' -v m="$m" '$1 == m {print $3}' "$LIST"); do
-    path=""; for r in $roots; do [[ -x "$r/bin/$c" ]] && path="$r/bin/$c" && break; done
-    [[ -n "$path" ]] || continue
+  for path in $(awk -F'\t' -v m="$m" '$1 == m {print $3}' "$LIST"); do
+    c=$(basename "$path")
+    [[ -x "$path" ]] || continue
     if [[ -e "$BIN/$c" ]] && ! grep -q '^# ood-module ' "$BIN/$c"; then skipped+=("$c"); continue; fi
     cat > "$BIN/$c" <<SHIM
 #!/bin/bash
@@ -303,7 +302,8 @@ case "$cmd" in
   show|display|help|whatis)
     if [[ -z "${1:-}" ]]; then echo "module avail [TEXT] | load NAME[/VERSION] ... | unload NAME | list | purge | show NAME"; others; exit 0; fi
     m=$(resolve "$1"); [[ -n "$m" ]] || { echo "module: '$1' is not available inside this app's container." >&2; others; exit 1; }
-    echo "$m - commands: $(awk -F'\t' -v m="$m" '$1 == m {print $3}' "$LIST")"; sed 's/^/  /' "$ENVDIR/$m.env" ;;
+    echo "$m - commands: $(awk -F'\t' -v m="$m" '$1 == m {print $3}' "$LIST" | tr ' ' '\n' | xargs -n1 basename | tr '\n' ' ')"
+    sed 's/^/  /' "$ENVDIR/$m.env" ;;
   *) echo "module $cmd: not supported inside this app's container." >&2; others; exit 1 ;;
 esac
 OODMOD

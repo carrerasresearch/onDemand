@@ -44,6 +44,23 @@ The POC cluster has no GPU partition, so GPU paths are not tested there.
   branch and the uploaded image stay in place. Delete them before retrying
   the same version.
 
+## Modules and cluster modules
+
+Each run, before looking for new releases, the bot also:
+
+- publishes `module load ood/<app>/<version>` (`.github/ood-modules/publish.py`)
+  for the images on `master` to `/ijc/PUBLIC/DATA/images/ood`: Lmod modules
+  whose `python`, `Rscript`, ... run in the app's image, plus `ood-run`,
+  `ood-shell`, `ood/conda` and the shared `ood_slurm.sh`;
+- weekly, or when the set of images changes, runs
+  `.github/ood-modules/host_modules.py` as a job on the POC cluster: which
+  of the cluster's modules work inside each app image. The result
+  (`/ijc/PUBLIC/DATA/images/ood/host-modules`) is what `module avail` /
+  `module load` offer in the apps' terminals.
+
+A failure there is emailed but does not stop the releases. Run both on
+demand with `release_bot.py --publish-modules [--ref BRANCH]`.
+
 ## Running it
 
 It runs on a maintainer workstation as a daily systemd user timer, not as a

@@ -717,7 +717,11 @@ import os, shutil, sys
 src, dest = sys.argv[1], sys.argv[2]
 new, old = dest + ".new", dest + ".old"
 shutil.rmtree(new, ignore_errors=True)
-shutil.copytree(src, new)
+# Contents only: the CIFS share refuses to set file modes (copytree's copystat).
+for d, _, fs in os.walk(src):
+    os.makedirs(os.path.join(new, os.path.relpath(d, src)), exist_ok=True)
+    for f in fs:
+        shutil.copyfile(os.path.join(d, f), os.path.join(new, os.path.relpath(d, src), f))
 shutil.rmtree(old, ignore_errors=True)
 if os.path.exists(dest):
     os.rename(dest, old)
