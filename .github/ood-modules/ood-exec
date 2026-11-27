@@ -1,0 +1,101 @@
+#!/bin/bash
+# ood-exec - run a command inside the image of the loaded ood/<app>/<version>
+# module, set up as the OnDemand app sets it up (same Python/R libraries,
+# conda environments, /ijc, GPU, the cluster's Slurm commands).
+#
+#   module load ood/jupyter            # or ood/jupyter/2026.11.2, ood/rstudio/3.24
+#   ood-exec python analysis.py        # the module's commands (python, Rscript, ...) do this
+#   ood-exec --env myenv python x.py   # in a conda env of ~/.conda/envs (Jupyter images)
+#
+# Containers cannot run on the login node: use it inside a Slurm job, or
+# submit with ood-run / start a shell with ood-shell.
+#
+# Published by .github/ood-modules/publish.py (master copy in the onDemand repo).
+set -u
+OOD_ROOT="${OOD_ROOT:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+
+die() { echo "ood: $*" >&2; exit 2; }
+[[ -n "${OOD_IMAGE:-}" ]] || die "no ood module loaded: module use $OOD_ROOT/modulefiles; module load ood/jupyter (or ood/rstudio)"
+[[ -f "$OOD_IMAGE" ]] || die "image $OOD_IMAGE not found"
+
+conda_env="${OOD_CONDA_ENV:-}"
+if [[ -d /.singularity.d ]]; then
+  die "already inside an app's container: use ood-run or ood-shell (they start a job on a node), or ood-host"
+fi
+if [[ "${1:-}" == "--env" ]]; then conda_env="${2:?--env needs a conda environment name}"; shift 2; fi
+[[ $# -gt 0 ]] || set -- bash
+
+if [[ -z "${SLURM_JOB_ID:-}" ]]; then
+  die "containers cannot run here ($(hostname -s)); run inside a Slurm job:
+  ood-run -c 4 --mem 16G -t 2:00:00 -- $*     # batch job
+  ood-shell -c 4 --mem 16G                    # interactive shell in the image"
+fi
+
+if ! command -v singularity >/dev/null 2>&1; then
+  { [[ "$(type -t module)" == function ]] || source /etc/profile.d/lmod.sh; module load singularity; } >/dev/null 2>&1
+fi
+if ! command -v singularity >/dev/null 2>&1; then
+  for p in /opt/software/singularity/*/bin; do [[ -x "$p/singularity" ]] && PATH="$p:$PATH"; done
+fi
+command -v singularity >/dev/null 2>&1 || die "singularity not found on $(hostname -s)"
+
+args=(exec --cleanenv)
+binds=(/ijc)
+envs=(LC_ALL=C.UTF-8 LANG=C.UTF-8)
+inner_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# A GPU in the job: pass it through.
+if [[ -n "${CUDA_VISIBLE_DEVICES:-}${SLURM_JOB_GPUS:-}${SLURM_STEP_GPUS:-}" ]]; then args+=(--nv); fi
+
+# The cluster's Slurm commands inside (sbatch/srun from scripts, ood-host).
+# Set up once per job and image.
+sdir="${TMPDIR:-/tmp}/ood-${USER:-$(id -un)}-${SLURM_JOB_ID}-$(basename "$OOD_IMAGE" .sif)"
+if [[ ! -f "$sdir/ood-slurm/state" && -f "$OOD_ROOT/lib/ood_slurm.sh" ]]; then
+  mkdir -p "$sdir" && ( source "$OOD_ROOT/lib/ood_slurm.sh"; ood_slurm_setup "$OOD_IMAGE" "$sdir" >/dev/null
+                        printf '%s\n%s\n' "$OOD_SLURM_BIND" "$OOD_SLURM_PATH" > "$sdir/ood-slurm/state" ) 2>/dev/null
+fi
+if [[ -f "$sdir/ood-slurm/state" ]]; then
+  { read -r sbind; read -r spath; } < "$sdir/ood-slurm/state"
+  [[ -n "$sbind" ]] && binds+=("$sbind")
+  [[ -n "$spath" ]] && inner_path="$spath:$inner_path"
+fi
+
+case "${OOD_APP:-}" in
+  jupyter)
+    w="$HOME/jupyterlab_ood"
+    mkdir -p "$w/python-libs" "$w/conda-envs" "$w/R/user-libs" "$w/jupyter-data" "$w/dot-conda" "$HOME/.conda/envs"
+    touch "$w/dot-conda/condarc"
+    binds+=("$w/dot-conda/condarc:$HOME/.condarc")
+    envs+=(PYTHONUSERBASE="$w/python-libs" CONDA_ENVS_PATH="$HOME/.conda/envs,/opt/conda/envs,$w/conda-envs"
+           JUPYTER_DATA_DIR="$w/jupyter-data" R_LIBS_USER="$w/R/user-libs")
+    inner_path="$inner_path:/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/bin"
+    envs+=(PATH="$inner_path")
+    launcher=(bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate "$0" && exec "$@"' "${conda_env:-jlab-env}")
+    ;;
+  rstudio)
+    [[ -z "$conda_env" ]] || die "--env is for the Jupyter images"
+    lib="$HOME/${OOD_R_WORKDIR:?}/R/user-libs"
+    mkdir -p "$lib"
+    envs+=(R_LIBS_USER="$lib" PATH="$inner_path")
+    if [[ -z "${OOD_BIOC_MIRROR:-}" && -n "${OOD_BIOC_VERSION:-}" ]]; then
+      cache="$HOME/.cache/ood/bioc-mirror-$(basename "$OOD_IMAGE" .sif)"
+      if [[ ! -f "$cache" ]]; then
+        mkdir -p "$(dirname "$cache")"
+        singularity exec "$OOD_IMAGE" sh -c '. /etc/os-release; u="https://p3m.dev/bioconductor/__linux__/$VERSION_CODENAME/latest"
+          curl -fsI -m 8 -o /dev/null "$u/packages/$0/bioc/src/contrib/PACKAGES" && echo "$u"' "$OOD_BIOC_VERSION" > "$cache" 2>/dev/null
+      fi
+      OOD_BIOC_MIRROR="$(cat "$cache" 2>/dev/null)"
+    fi
+    if [[ -f "$OOD_ROOT/R/Rprofile.site" ]]; then
+      envs+=(R_PROFILE="$OOD_ROOT/R/Rprofile.site" OOD_R_HELPERS="$OOD_ROOT/R/ood.R" OOD_BIOC_MIRROR="${OOD_BIOC_MIRROR:-}")
+    fi
+    launcher=()
+    ;;
+  *) die "unknown app '${OOD_APP:-}' in the loaded module" ;;
+esac
+
+benv=()
+for e in "${envs[@]}" SLURM_JOB_ID="$SLURM_JOB_ID" SLURM_CPUS_PER_TASK="${SLURM_CPUS_PER_TASK:-}" CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-}"; do
+  benv+=(--env "$e")
+done
+exec singularity "${args[@]}" -B "$(IFS=,; echo "${binds[*]}")" "${benv[@]}" "$OOD_IMAGE" ${launcher[@]+"${launcher[@]}"} "$@"

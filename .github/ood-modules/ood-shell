@@ -1,0 +1,33 @@
+#!/bin/bash
+# ood-shell - an interactive shell inside an ood module's image, as a Slurm job.
+#
+#   module load ood/jupyter
+#   ood-shell -c 4 --mem 16G -t 2:00:00     # a new interactive job (srun --pty)
+#   ood-shell --gpu -c 4                    # on a GPU node
+#   ood-shell --env myenv                   # with a conda env activated (Jupyter images)
+#   ood-shell --module ood/rstudio/3.24     # another module than the loaded one
+#
+# Other options are srun options. Inside a job already (not in an app's
+# container), it starts the shell right there.
+set -u
+OOD_ROOT="${OOD_ROOT:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+die() { echo "ood-shell: $*" >&2; exit 2; }
+sr=() envopt=() mod="${OOD_MODULE:-}"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --gpu) sr+=(--gres=gpu:1); [[ -n "${OOD_GPU_PARTITION:-test-gpu}" ]] && sr+=(--partition="${OOD_GPU_PARTITION:-test-gpu}") ;;
+    --env) envopt=(--env "${2:?--env needs a name}"); shift ;;
+    --env=*) envopt=(--env "${1#--env=}") ;;
+    --module) mod="${2:?--module needs a name}"; shift ;;
+    --module=*) mod="${1#--module=}" ;;
+    *) sr+=("$1") ;;
+  esac
+  shift
+done
+[[ -n "$mod" ]] || die "no ood module: module use $OOD_ROOT/modulefiles; module load ood/jupyter (or pass --module ood/jupyter)"
+if [[ -n "${SLURM_JOB_ID:-}" && ${#sr[@]} -eq 0 && ! -d /.singularity.d && "$mod" == "${OOD_MODULE:-}" ]]; then
+  exec "$OOD_ROOT/bin/ood-exec" ${envopt[@]+"${envopt[@]}"} bash -l
+fi
+inner="[[ \"\$(type -t module)\" == function ]] || source /etc/profile.d/lmod.sh
+module use $(printf '%q' "$OOD_ROOT/modulefiles") && module load $(printf '%q' "$mod") && exec ood-exec $(printf '%q ' ${envopt[@]+"${envopt[@]}"}) bash -l"
+exec srun "${sr[@]+"${sr[@]}"}" --pty bash -c "$inner"
