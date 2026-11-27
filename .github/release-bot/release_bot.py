@@ -266,6 +266,21 @@ def poc_job(name, files, sbatch, timeout_min=30, extra=""):
     return job, out
 
 
+def slurm_check(app, image):
+    """Files and job lines that run ood_slurm.sh's self-test in IMAGE: the
+    cluster's Slurm commands inside the app's container (ood-poc's copy)."""
+    try:
+        helper = poc_file(app, "template/ood_slurm.sh")
+    except RuntimeError:
+        return {}, 'echo "ood-slurm: not in this ref"\n'
+    return {"ood_slurm.sh": helper}, f"""module load singularity >/dev/null 2>&1
+( source ./ood_slurm.sh; ood_slurm_setup "{image}" "$PWD/slurmcheck" >/dev/null; ood_slurm_selftest "{image}" ) 2>&1 | tail -1
+"""
+
+
+SLURM_OK = re.compile(r"^ood-slurm: (ok|disabled|not in this ref)", re.M)
+
+
 SBATCH_HEAD = """#!/bin/bash
 #SBATCH -c 2
 #SBATCH --mem=8G
@@ -365,14 +380,16 @@ class RStudio:
         if f'echo "Version {key}:' not in script:
             raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
         workdir = re.search(r'^workdir="\$\{HOME\}/([^"]+)"$', script, re.M).group(1)
-        sbatch = SBATCH_HEAD + """bash ./script.sh > rserver.log 2>&1 &
+        image = re.search(r'export RSTUDIO_SERVER_IMAGE="([^"]+)"', script).group(1)
+        sfiles, sline = slurm_check(self.app, image)
+        sbatch = SBATCH_HEAD + sline + """bash ./script.sh > rserver.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$USER"
 kill $pid; pkill -u "$USER" -f "rserver --www-port $port"; wait
 """
         job, out = poc_job(f"rstudio_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/rstudio.py",
-                                               "bin/auth": REPO / self.app / "template/bin/auth"}, sbatch)
-        ok = ("sign_in: 200" in out and re.search(r"^ide: 200 .*title: RStudio", out, re.M)
+                                               "bin/auth": REPO / self.app / "template/bin/auth", **sfiles}, sbatch)
+        ok = (SLURM_OK.search(out) and "sign_in: 200" in out and re.search(r"^ide: 200 .*title: RStudio", out, re.M)
               and re.search(rf"^rsession: .*--r-libs-user \S*/{re.escape(workdir)}/R/user-libs", out, re.M))
         return bool(ok), job, out
 
@@ -534,7 +551,8 @@ class Jupyter:
         m = re.search(r'export JUPYTERLAB_IMAGE="([^"]+)"', script)
         if not m or f'echo "Image {key}:' not in script:
             raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
-        sbatch = SBATCH_HEAD + r"""host=$(hostname)
+        sfiles, sline = slurm_check(self.app, m.group(1))
+        sbatch = SBATCH_HEAD + sline + r"""host=$(hostname)
 password=pw$RANDOM$RANDOM; SALT=s$RANDOM
 export CONFIG_FILE="$PWD/config.py"
 cat > "$CONFIG_FILE" <<EOL
@@ -555,23 +573,27 @@ singularity exec --nv --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/prof
 fi
 # scverse stack (images that have it): scanpy, decoupler and LIANA+ on synthetic data.
 singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python ./scverse.py' 2>&1 | tail -40
+# Stale packages in the user's pip folder must not override the image's (images with sitecustomize.py).
+singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python ./usersite.py' 2>&1 | tail -5
 singularity exec --cleanenv "%s" bash --norc -c 'export PATH=/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:$PATH; cellranger --version; cellranger-arc --version' 2>&1 | sed 's/^/cellranger: /'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
 pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
-""" % ((m.group(1),) * 4)
+""" % ((m.group(1),) * 5)
         if gpu:
             sbatch = sbatch.replace("cd \"$SLURM_SUBMIT_DIR\"\n", "cd \"$SLURM_SUBMIT_DIR\"\nexport TEST_GPU=1\n", 1)
         job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py",
-                                                      "scverse.py": HERE / "probes/scverse.py"}, sbatch,
+                                                      "scverse.py": HERE / "probes/scverse.py",
+                                                      "usersite.py": HERE / "probes/usersite.py", **sfiles}, sbatch,
                            extra="--gres=gpu:1" if gpu else "")
-        ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
+        ok = (SLURM_OK.search(out) and re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
               and re.search(r"^cellranger: cellranger (cellranger-)?\d+\.\d+\.\d+", out, re.M)
               and re.search(r"^cellranger: cellranger-arc (cellranger-arc-)?\d+\.\d+\.\d+", out, re.M))
         # Images labelled with LIANA+ must pass the scverse check; others skip it.
         ok = ok and (re.search(r"^scverse: ok", out, re.M) if "LIANA+" in key else "scverse: FAILED" not in out)
+        ok = ok and re.search(r"^usersite: (ok|not protected)", out, re.M)
         if gpu:
             ok = ok and re.search(r"^gpu: True", out, re.M) and "gpu_matmul: True" in out and "gpu_nms: [0]" in out
         return bool(ok), job, out
@@ -641,7 +663,8 @@ class VSCode:
         if f'echo "Version {key}:' not in script:
             raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
         image = re.search(r'^SINGULARITY_IMAGE="([^"]+)"$', script, re.M).group(1)
-        sbatch = SBATCH_HEAD + f"""module load singularity >/dev/null 2>&1
+        sfiles, sline = slurm_check(self.app, image)
+        sbatch = SBATCH_HEAD + sline + f"""module load singularity >/dev/null 2>&1
 echo "image={image}"
 singularity exec {image} /usr/container/bin/code --version | head -1 | sed 's/^/code: /'
 singularity exec {image} /usr/container/bin/code tunnel user show 2>&1 | head -1 | sed 's/^/tunnel: /'
@@ -649,9 +672,9 @@ singularity exec {image} /usr/container/bin/code tunnel user show 2>&1 | head -1
 # check the client is installed and the --export=NONE defaults are set.
 singularity exec --cleanenv {image} sh -c 'test -x /usr/bin/sbatch && echo sbatch=ok; echo "export=$SBATCH_EXPORT"; test -f /etc/profile.d/slurm-export.sh && echo profile=ok' 2>&1 | sed 's/^/slurm: /'
 """
-        job, out = poc_job(f"vscode_{slug(key)}", {}, sbatch, timeout_min=10)
+        job, out = poc_job(f"vscode_{slug(key)}", sfiles, sbatch, timeout_min=10)
         version = re.match(r"VS Code (\S+),", key).group(1)
-        ok = (re.search(rf"^code: code {re.escape(version)}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
+        ok = (SLURM_OK.search(out) and re.search(rf"^code: code {re.escape(version)}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
               and "slurm: sbatch=ok" in out and "slurm: export=NONE" in out and "slurm: profile=ok" in out)
         return bool(ok), job, out
 
@@ -668,9 +691,72 @@ def latest_rstudio():
 PLUGINS = {p.app: p for p in (RStudio(), Jupyter(), VSCode())}
 
 
+# --------------------------------------------------------------------------- ood modules
+OOD_DIR = f"{IMAGES}/ood"
+HOST_MODULES_EVERY = dt.timedelta(days=7)
+
+
+def app_images():
+    """Every image the apps with a terminal offer (their script.sh.erb on the checkout)."""
+    out = []
+    for app in ("jupyter", "rstudio_bioconductor_321", "vscode_cli_tunnel", "igv"):
+        text = (REPO / app / "template/script.sh.erb").read_text()
+        out += re.findall(r'(/ijc/PUBLIC/DATA/images/[^"\s]+\.sif)', text)
+    return sorted(set(out))
+
+
+def publish_modules():
+    """`module load ood/<app>/<version>` for the images on the checkout (.github/ood-modules)."""
+    out = run([sys.executable, str(REPO / ".github/ood-modules/publish.py"), "--repo", str(REPO),
+               "--dest", OOD_DIR, "--ssh-host", cfg["SSH_HOST"]])
+    log(f"ood modules: {out.strip().splitlines()[-1] if out.strip() else 'published'}")
+
+
+HOST_MODULES_PUBLISH = r'''
+import os, shutil, sys
+src, dest = sys.argv[1], sys.argv[2]
+new, old = dest + ".new", dest + ".old"
+shutil.rmtree(new, ignore_errors=True)
+# Contents only: the CIFS share refuses to set file modes (copytree's copystat).
+for d, _, fs in os.walk(src):
+    os.makedirs(os.path.join(new, os.path.relpath(d, src)), exist_ok=True)
+    for f in fs:
+        shutil.copyfile(os.path.join(d, f), os.path.join(new, os.path.relpath(d, src), f))
+shutil.rmtree(old, ignore_errors=True)
+if os.path.exists(dest):
+    os.rename(dest, old)
+os.rename(new, dest)
+shutil.rmtree(old, ignore_errors=True)
+print("host-modules: published", len(os.listdir(dest)), "entries")
+'''
+
+
+def refresh_host_modules(force=False):
+    """Which cluster modules work inside each app image (host_modules.py, run as
+    a job on the POC cluster), published to OOD_DIR/host-modules. Weekly, and
+    whenever the set of images changes."""
+    images = app_images()
+    stamp = STATE / "host-modules.stamp"
+    prev = stamp.read_text().split("\n", 1) if stamp.exists() else ["", ""]
+    age = dt.datetime.now() - dt.datetime.fromtimestamp(stamp.stat().st_mtime) if stamp.exists() else None
+    if not force and prev[1:] == ["\n".join(images)] and age is not None and age < HOST_MODULES_EVERY:
+        return
+    log(f"host modules: testing the cluster's modules in {len(images)} images")
+    head = SBATCH_HEAD.replace("#SBATCH -c 2\n#SBATCH --mem=8G\n", "#SBATCH -c 8\n#SBATCH --mem=16G\n")
+    sbatch = (head + "module load singularity >/dev/null 2>&1\n"
+              f"/usr/bin/python3 -I ./host_modules.py \"$PWD/out\" {' '.join(shlex.quote(i) for i in images)}\n"
+              f"python3 - \"$PWD/out\" {shlex.quote(OOD_DIR + '/host-modules')} < ./publish_host_modules.py\n")
+    job, out = poc_job("host_modules", {"host_modules.py": REPO / ".github/ood-modules/host_modules.py",
+                                        "publish_host_modules.py": HOST_MODULES_PUBLISH}, sbatch, timeout_min=300)
+    if "host-modules: published" not in out:
+        raise RuntimeError(f"host_modules.py job {job} failed:\n{out[-3000:]}")
+    stamp.write_text(dt.datetime.now().isoformat() + "\n" + "\n".join(images))
+    log("host modules: " + "; ".join(l for l in out.splitlines() if "modules usable" in l))
+
+
 # --------------------------------------------------------------------------- flow
 def summary_of(out):
-    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:)"
+    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:|usersite:|ood-slurm:)"
     return "\n".join(l[:160] for l in out.splitlines() if re.match(keep, l))
 
 
@@ -742,10 +828,12 @@ def main():
     ap.add_argument("--target", choices=["ood-poc", "production"], default="ood-poc",
                     help="with --test-existing: test what this portal serves, on its cluster")
     ap.add_argument("--gpu", action="store_true", help="with --test-existing jupyter:... on production: use a GPU node")
+    ap.add_argument("--publish-modules", action="store_true",
+                    help="only publish the ood modules and re-test the cluster modules in the images (from --ref)")
     a = ap.parse_args()
     if a.onto:
         a.ref = a.onto
-    elif a.ref != "master" and not (a.dry_run or a.test_existing):
+    elif a.ref != "master" and not (a.dry_run or a.test_existing or a.publish_modules):
         sys.exit("--ref is only for --dry-run and --test-existing; releases start from master (or use --onto)")
 
     (STATE / "logs").mkdir(parents=True, exist_ok=True)
@@ -761,6 +849,12 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         sys.exit("another release_bot.py run is in progress")
+
+    if a.publish_modules:
+        checkout(a.ref)
+        publish_modules()
+        refresh_host_modules(force=True)
+        return 0
 
     if a.test_existing:
         app, key = a.test_existing.split(":", 1)
@@ -785,6 +879,17 @@ def main():
         return 0 if ok else 1
 
     failed = False
+    if not a.dry_run and not a.onto and a.ref == "master" and not a.only:
+        for step in (publish_modules, refresh_host_modules):
+            try:
+                checkout("master")
+                step()
+            except Exception as e:
+                failed = True
+                log(f"[{step.__name__}] FAILED: {e}")
+                notify(f"release bot: {step.__name__} FAILED",
+                       f"{e}\n\nThe apps keep working; only `module load ood/...` or the cluster modules inside the "
+                       f"apps' containers are not updated.\n\n{traceback.format_exc()[-3000:]}")
     for name, plugin in PLUGINS.items():
         if a.only and name != a.only:
             continue

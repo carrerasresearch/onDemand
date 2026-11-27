@@ -27,7 +27,7 @@ For each new release it:
    | App | Checks |
    |---|---|
    | RStudio | sign-in, the IDE page, and an R session started with the right library |
-   | Jupyter | login, the API, the Lab page, a Python kernel reaching idle, that PyTorch imports, and (`probes/scverse.py`) scanpy, decoupler and a LIANA+ ranking on synthetic data |
+   | Jupyter | login, the API, the Lab page, a Python kernel reaching idle, that PyTorch imports, (`probes/scverse.py`) scanpy, decoupler and a LIANA+ ranking on synthetic data, and (`probes/usersite.py`) that a stale package in the user's pip folder does not override the image's |
    | VS Code | the CLI version, the tunnel CLI, and the Slurm client in the image (the tunnel itself needs an interactive Microsoft login) |
 4. if the test passes, opens a PR to `master` and emails the maintainer.
    Only that merge reaches production; it publishes in place, without a
@@ -43,6 +43,23 @@ The POC cluster has no GPU partition, so GPU paths are not tested there.
   `systemctl --user start ood-release-bot.service`. After a failure, the
   branch and the uploaded image stay in place. Delete them before retrying
   the same version.
+
+## Modules and cluster modules
+
+Each run, before looking for new releases, the bot also:
+
+- publishes `module load ood/<app>/<version>` (`.github/ood-modules/publish.py`)
+  for the images on `master` to `/ijc/PUBLIC/DATA/images/ood`: Lmod modules
+  whose `python`, `Rscript`, ... run in the app's image, plus `ood-run`,
+  `ood-shell`, `ood/conda` and the shared `ood_slurm.sh`;
+- weekly, or when the set of images changes, runs
+  `.github/ood-modules/host_modules.py` as a job on the POC cluster: which
+  of the cluster's modules work inside each app image. The result
+  (`/ijc/PUBLIC/DATA/images/ood/host-modules`) is what `module avail` /
+  `module load` offer in the apps' terminals.
+
+A failure there is emailed but does not stop the releases. Run both on
+demand with `release_bot.py --publish-modules [--ref BRANCH]`.
 
 ## Running it
 

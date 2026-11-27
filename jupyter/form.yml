@@ -28,7 +28,14 @@ attributes:
       `/etc/ood-python-packages.txt` in the image lists every package.
       Python packages you install with pip are kept per Python version, so
       packages installed under one Python version are not visible in another.
-      They also take precedence over the image's own copies.
+      In the images with scanpy and LIANA+, the image's own packages win over
+      your pip copies of the same package.
+
+      For your own software, use a conda environment: in a Jupyter terminal,
+      `conda create -n myenv python=3.12 ipykernel` (add `r-irkernel` for R).
+      It is stored in `~/.conda/envs` and appears as a kernel in every image.
+      It also works unchanged in VS Code and in Slurm jobs, e.g.
+      `~/.conda/envs/myenv/bin/python script.py`.
     display: true
   modules: python
   extra_jupyter_args: ""

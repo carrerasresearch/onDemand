@@ -56,8 +56,30 @@ mkdir -p -m 700 $workdir
 # there only after install.packages() asks to create it): create it up front.
 mkdir -p "${workdir}/R/user-libs"
 
+# The cluster's Slurm commands (sbatch, srun, ...; jobs start with the node's
+# login environment) and ood-host in the RStudio terminal and from R:
+# ood_slurm.sh. On any problem RStudio still starts, without them.
+OOD_SLURM_BIND=""; OOD_SLURM_PATH=""
+[[ -f ./ood_slurm.sh ]] && source ./ood_slurm.sh && ood_slurm_setup "$RSTUDIO_SERVER_IMAGE" "${OOD_SESSION_DIR:-$PWD}"
+
+# R site profile for the sessions (ood-R/Rprofile.site): the image's own, plus
+# the "ood" helpers (ood_reinstall_packages()) and, when Posit's package manager
+# has them for this image's OS and Bioconductor release, Bioconductor binaries.
+OOD_R_DIR="${OOD_SESSION_DIR:-$PWD}/ood-R"
+OOD_BIOC_MIRROR=""
+<%- bioc = key[/Bioconductor (\d+\.\d+)/, 1] -%>
+<%- if bioc -%>
+# Checked from inside the image (its CA certificates and curl).
+codename="$(singularity exec "$RSTUDIO_SERVER_IMAGE" sh -c '. /etc/os-release; echo "$VERSION_CODENAME"' 2>/dev/null)"
+if [[ -n "$codename" ]] && singularity exec "$RSTUDIO_SERVER_IMAGE" curl -fsI -m 8 -o /dev/null \
+     "https://p3m.dev/bioconductor/__linux__/${codename}/latest/packages/<%= bioc %>/bioc/src/contrib/PACKAGES" 2>/dev/null; then
+  OOD_BIOC_MIRROR="https://p3m.dev/bioconductor/__linux__/${codename}/latest"
+  echo "Bioconductor <%= bioc %> binaries for ${codename}: ${OOD_BIOC_MIRROR}"
+fi
+<%- end -%>
+
 # Bindings
-export SINGULARITY_BINDPATH="${workdir}/run:/run,${workdir}/database.conf:/etc/rstudio/database.conf,${workdir}/rsession.sh:/etc/rstudio/rsession.sh,${workdir}/var/lib/rstudio-server:/var/lib/rstudio-server,/ijc:/ijc,/opt/ohpc:/opt/ohpc,/opt/software:/opt/software,/usr/local/bin/lua:/usr/local/bin/lua"
+export SINGULARITY_BINDPATH="${workdir}/run:/run,${workdir}/database.conf:/etc/rstudio/database.conf,${workdir}/rsession.sh:/etc/rstudio/rsession.sh,${workdir}/var/lib/rstudio-server:/var/lib/rstudio-server,/ijc:/ijc${OOD_SLURM_BIND:+,$OOD_SLURM_BIND}"
 
 mkdir -p -m 700 ${workdir}/run ${workdir}/tmp ${workdir}/var/lib/rstudio-server
 cat > ${workdir}/database.conf <<END
@@ -81,6 +103,11 @@ sed 's/^ \{2\}//' > "${RSESSION_WRAPPER_FILE}" << EOL
   export LD_LIBRARY_PATH="/usr/local/lib/R/lib"
   
   export R_LIBS_USER=${workdir}/R/user-libs
+  [ -f "${OOD_R_DIR}/Rprofile.site" ] && export R_PROFILE="${OOD_R_DIR}/Rprofile.site" OOD_R_HELPERS="${OOD_R_DIR}/ood.R" OOD_BIOC_MIRROR="${OOD_BIOC_MIRROR}"
+  ${OOD_SLURM_PATH:+export PATH="${OOD_SLURM_PATH}:\$PATH"}
+  # The host's \`module\` would load cluster modules into the container and
+  # could break R; the one on PATH (ood_slurm.sh) offers the tested ones.
+  unset -f module ml 2>/dev/null
 
   # Launch the original command
   echo "Launching rsession..."

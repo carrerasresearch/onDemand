@@ -9,7 +9,7 @@ setup_env () {
   # Image (form.yml jupyter_image; the value is the description shown on the
   # session card) => SIF. New images are added at the top by .github/release-bot.
   images = {
-    "Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1, scanpy 1.12, LIANA+ 2.1" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger_2026.11.1.sif",
+    "Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1, scanpy 1.12, LIANA+ 2.1" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger_2026.11.2.sif",
     "Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-13.sif",
     "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0" => "/ijc/PUBLIC/DATA/images/jupyter-cellranger-gpu-cuda-11.sif",
   }
@@ -43,8 +43,13 @@ workdir="${HOME}/jupyterlab_ood"
 mkdir -p -m 700 "$workdir/run" "$workdir/tmp" "$workdir/R/user-libs"
 # Create a specific folder for container-based python libraries
 mkdir -p -m 700 "$workdir/python-libs"
-# Create a specific folder for container-based conda environments
+# Conda environments live in ~/.conda/envs, where conda puts them on the
+# cluster too, so the same envs work in every image, in VS Code and in Slurm
+# jobs. Envs this app made before are still listed: $workdir/conda-envs was
+# meant for them, but conda does not split CONDA_ENVS_PATH on commas, so they
+# went to its fallback, then $workdir/dot-conda/envs (mounted over ~/.conda).
 mkdir -p -m 700 "$workdir/conda-envs"
+mkdir -p "${HOME}/.conda/envs"
 # Create a specific folder for jupyter-data
 mkdir -p -m 700 "$workdir/jupyter-data"
 # Fake the Home directory so config files go to workdir/tmp-home
@@ -56,7 +61,8 @@ mkdir -p "${workdir}/dot-jupyter"
 mkdir -p "${workdir}/dot-cache"
 mkdir -p "${workdir}/dot-conda"
 
-# Prevent host .condarc interference by creating a blank one in the isolated dot-conda
+# Prevent host .condarc interference: a blank one is mounted over ~/.condarc
+# (~/.conda itself is the real one, for the envs).
 touch "${workdir}/dot-conda/condarc"
 
 # This asks the container's python for its version string (e.g., 3.10)
@@ -77,11 +83,81 @@ chmod 0600 "$TMPDIR/jupyterlab-server/secure-cookie-key"
 # /opt paths for CellRanger at the beginning
 # /opt/cellranger(-arc) link to the installed versions in newer images; the
 # versioned paths are for the cuda11/cuda13 images.
-export SINGULARITYENV_PATH="/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# The cluster's Slurm commands (sbatch, srun, ...; jobs start with the node's
+# login environment) and ood-host in terminals and notebooks: ood_slurm.sh.
+OOD_SLURM_BIND=""; OOD_SLURM_PATH=""
+[[ -f ./ood_slurm.sh ]] && source ./ood_slurm.sh && ood_slurm_setup "$JUPYTERLAB_IMAGE" "${OOD_SESSION_DIR:-$PWD}"
+export SINGULARITYENV_PATH="${OOD_SLURM_PATH:+$OOD_SLURM_PATH:}/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# A kernel for each conda env with ipykernel (Python) or IRkernel (R), so envs
+# made anywhere (here, VS Code, a cluster shell) appear in every image without
+# registering them. Kernels of removed envs are removed; envs that already
+# have a kernel the user registered get none. Writes only
+# $workdir/jupyter-data/kernels/ood-conda-*, and lists the envs outside
+# ~/.conda/envs in ~/.conda/environments.txt so the cluster's conda sees them.
+python3 - "${workdir}/jupyter-data/kernels" "${SINGULARITYENV_PATH}" "${HOME}/.conda/envs" "${workdir}/conda-envs" "${workdir}/dot-conda/envs" <<'EOF' || echo "warning: could not update the kernels of conda environments"
+import glob, json, os, re, shutil, sys
+kdir, path_tail, dirs = sys.argv[1], sys.argv[2], sys.argv[3:]
+want = {}
+# Envs the user already registered a kernel for (their own kernel.json).
+registered = set()
+for kj in glob.glob(os.path.join(kdir, "*", "kernel.json")):
+    if os.path.basename(os.path.dirname(kj)).startswith("ood-conda-"):
+        continue
+    try:
+        exe = json.load(open(kj))["argv"][0]
+        registered.add(os.path.dirname(os.path.dirname(os.path.realpath(exe))))
+    except Exception:
+        pass
+others = []
+for d in dirs:
+    for env in sorted(glob.glob(os.path.join(d, "*"))):
+        name = os.path.basename(env)
+        if not os.path.isdir(os.path.join(env, "conda-meta")):
+            continue
+        if d != dirs[0]:
+            others.append(env)
+        if os.path.realpath(env) in registered:
+            continue
+        # The env's own tools first; no user pip packages (PYTHONUSERBASE) or
+        # R libraries of the image leaking in.
+        env_vars = {"PATH": env + "/bin:" + path_tail, "CONDA_PREFIX": env, "CONDA_DEFAULT_ENV": name,
+                    "PYTHONNOUSERSITE": "1", "R_LIBS_USER": env + "/lib/R/library"}
+        slug = re.sub(r"[^A-Za-z0-9._-]", "_", name)
+        if os.path.isfile(env + "/bin/python") and glob.glob(env + "/lib/python3*/site-packages/ipykernel"):
+            want.setdefault("ood-conda-py-" + slug, {
+                "argv": [env + "/bin/python", "-m", "ipykernel_launcher", "-f", "{connection_file}"],
+                "display_name": "Python (%s)" % name, "language": "python", "env": env_vars,
+                "metadata": {"debugger": True, "ood_env": env}})
+        if os.path.isfile(env + "/bin/R") and os.path.isdir(env + "/lib/R/library/IRkernel"):
+            want.setdefault("ood-conda-r-" + slug, {
+                "argv": [env + "/bin/R", "--slave", "-e", "IRkernel::main()", "--args", "{connection_file}"],
+                "display_name": "R (%s)" % name, "language": "R", "env": env_vars,
+                "metadata": {"ood_env": env}})
+os.makedirs(kdir, exist_ok=True)
+for old in glob.glob(os.path.join(kdir, "ood-conda-*")):
+    if os.path.basename(old) not in want:
+        shutil.rmtree(old, ignore_errors=True)
+for k, spec in want.items():
+    os.makedirs(os.path.join(kdir, k), exist_ok=True)
+    with open(os.path.join(kdir, k, "kernel.json"), "w") as f:
+        json.dump(spec, f, indent=1)
+# Envs made in the app's old env folder: make them visible to conda elsewhere.
+txt = os.path.join(os.path.dirname(dirs[0]), "environments.txt")
+try:
+    known = set(open(txt).read().split()) if os.path.exists(txt) else set()
+    new = [e for e in others if e not in known]
+    if new:
+        with open(txt, "a") as f:
+            f.write("".join(e + "\n" for e in new))
+except OSError:
+    pass
+print("conda env kernels: " + (", ".join(sorted(want)) or "none"))
+EOF
 
 export SINGULARITYENV_PREPEND_PATH="/opt/conda/bin"
 # Mask host .condarc and bind OOD's config/run dirs
-export SINGULARITY_BINDPATH="/ijc:/ijc,${workdir}/run:/run"
+export SINGULARITY_BINDPATH="/ijc:/ijc,${workdir}/run:/run${OOD_SLURM_BIND:+,$OOD_SLURM_BIND}"
 export SINGULARITYENV_PYTHONPATH=""
 
 # Launch info
@@ -105,11 +181,10 @@ singularity exec ${SINGULARITY_GPU_FLAG} --cleanenv \
   -B "${workdir}/dot-local:${HOME}/.local" \
   -B "${workdir}/dot-jupyter:${HOME}/.jupyter" \
   -B "${workdir}/dot-cache:${HOME}/.cache" \
-  -B "${workdir}/dot-conda:${HOME}/.conda" \
   -B "${workdir}/dot-conda/condarc:${HOME}/.condarc" \
   --env R_LIBS_USER="${workdir}/R/user-libs" \
   --env PYTHONUSERBASE="${workdir}/python-libs" \
-  --env CONDA_ENVS_PATH="/opt/conda/envs,${workdir}/conda-envs" \
+  --env CONDA_ENVS_PATH="${HOME}/.conda/envs:/opt/conda/envs:${workdir}/conda-envs:${workdir}/dot-conda/envs" \
   --env JUPYTER_DATA_DIR="${workdir}/jupyter-data" \
   --env SHELL="/bin/bash" \
   "${JUPYTERLAB_IMAGE}" \

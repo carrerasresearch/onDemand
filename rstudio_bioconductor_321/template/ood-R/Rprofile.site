@@ -1,0 +1,23 @@
+# OnDemand site profile for the RStudio app (R_PROFILE points here). It runs
+# the image's own Rprofile.site first, then:
+#  - Bioconductor packages as binaries from Posit's package manager when it
+#    has them for this OS and release (OOD_BIOC_MIRROR, checked at launch);
+#  - attaches the "ood" helpers (ood_reinstall_packages(), ...);
+#  - in a new, empty library, a one-time hint about reinstalling packages.
+local({
+  f <- file.path(R.home("etc"), "Rprofile.site")
+  if (file.exists(f)) source(f, local = new.env())
+})
+local({
+  m <- Sys.getenv("OOD_BIOC_MIRROR")
+  if (nzchar(m)) options(BioC_mirror = m)
+})
+local({
+  h <- Sys.getenv("OOD_R_HELPERS")
+  if (nzchar(h) && file.exists(h)) {
+    e <- attach(NULL, name = "ood")
+    sys.source(h, envir = e)
+    if (interactive()) setHook("rstudio.sessionInit", function(...) e$.ood_reinstall_hint(), action = "append")
+    if (interactive() && !nzchar(Sys.getenv("RSTUDIO"))) e$.ood_reinstall_hint()
+  }
+})

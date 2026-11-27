@@ -18,7 +18,11 @@ attributes:
     help: |
       Each version has its own R package library, because packages built for
       one R version do not work with another: packages you install under one
-      version have to be reinstalled under another. EHMM is the environment of
+      version have to be reinstalled under another. In a new version, run
+      `ood_reinstall_packages()` in the R console to install the packages of
+      your previous version (binaries where available, usually minutes); see
+      `ood_reinstall_packages(dry_run = TRUE)` first. In Slurm jobs, the same R
+      and library: `module load ood/rstudio/3.24` (see the session card). EHMM is the environment of
       the former "EHMM" app (eHMM 1.0 and samtools on Bioconductor 3.11), with
       the same packages.
     display: true

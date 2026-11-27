@@ -1,0 +1,12 @@
+<%# Shown on the session card while the session runs. Master copy: .github/ood-checks/info.md.erb (sync.sh copies it). -%>
+<details><summary><strong>Terminal: Slurm jobs, cluster modules, this app's image in jobs</strong></summary>
+
+In this session's terminal:
+
+- `sbatch`, `srun`, `squeue` ... are the cluster's own; jobs start with the cluster's environment, not the app's.
+- `ood-run -c 8 --mem 32G -- COMMAND` runs a command as a job in this app's image; `ood-shell -c 4` opens one interactively.
+- `ood-host` opens a shell on this node outside the app, inside this session's job (all cluster modules work there).
+- `module avail` lists the cluster modules tested to work inside this app; `module load NAME` adds their commands.
+
+In Slurm jobs and cluster shells: `module use /ijc/PUBLIC/DATA/images/ood/modulefiles`, then `module load ood/jupyter` or `ood/rstudio` (`module avail ood` lists the versions). More: `/ijc/PUBLIC/DATA/images/ood/README.md`.
+</details>

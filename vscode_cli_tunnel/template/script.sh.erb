@@ -94,6 +94,18 @@ else
     echo "WARNING: Cannot read Slurm config at ${HOST_SLURM_CONF}; sbatch in VS Code terminals may fail."
 fi
 
+# --- THE CLUSTER'S SLURM IN VS CODE TERMINALS ---
+# ood_slurm.sh: sbatch, srun, ... run the cluster's own client (the version
+# this node's slurmd runs, so it follows Slurm upgrades; the client built into
+# the image only stays as a fallback), with the node's login environment, so
+# jobs do not inherit the container's. Also ood-host.
+OOD_SLURM_BIND=""; OOD_SLURM_PATH=""
+[[ -f ./ood_slurm.sh ]] && source ./ood_slurm.sh && ood_slurm_setup "$SINGULARITY_IMAGE" "${OOD_SESSION_DIR:-$PWD}"
+[[ -n "$OOD_SLURM_PATH" ]] && export SINGULARITYENV_PREPEND_PATH="$OOD_SLURM_PATH"
+# Do not pass the host's `module` function into the container: the `module`
+# on PATH there (ood_slurm.sh) offers the cluster modules tested in this image.
+export -fn module ml 2>/dev/null || true
+
 # --- LAUNCH TUNNEL SERVICE (Background) ---
 # Launch the main tunnel service in the background (&).
 
@@ -101,6 +113,7 @@ echo "Launching VS Code Tunnel service..."
 
 /usr/bin/env bash -c "singularity run \
   -B /etc/slurm:/etc/slurm     -B /var/run/munge:/var/run/munge     -B /usr/local/bin:/usr/local/bin    -B /opt:/opt     -B /ijc:/ijc \
+  ${OOD_SLURM_BIND:+-B $OOD_SLURM_BIND} \
   $SINGULARITY_IMAGE" &
 
 # Capture the process ID
