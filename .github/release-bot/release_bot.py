@@ -446,6 +446,11 @@ class Jupyter:
     @staticmethod
     def label_after_build(rel, versions):
         rel.label = rel.label.replace("(CUDA ?)", f"(CUDA {versions.get('torch_cuda', '?')})")
+        # The scverse stack is not pinned: name the versions the build got.
+        if "scanpy" in versions and "liana" in versions:
+            mm = lambda v: ".".join(v.split(".")[:2])
+            rel.label += f", scanpy {mm(versions['scanpy'])}, LIANA+ {mm(versions['liana'])}"
+            rel.summary += f", scanpy {versions['scanpy']}, LIANA+ {versions['liana']}"
 
     @staticmethod
     def torch_pair():
@@ -548,20 +553,25 @@ singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d
 if [ -n "$TEST_GPU" ]; then
 singularity exec --nv --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python -c "import zmq, torch, torchvision; ok = torch.cuda.is_available(); print(\"gpu:\", ok, torch.cuda.get_device_name(0) if ok else \"\"); x = torch.rand(2000, 2000, device=\"cuda\"); print(\"gpu_matmul:\", bool((x @ x).sum() > 0)); b = torch.tensor([[0., 0, 10, 10], [1, 1, 11, 11]], device=\"cuda\"); print(\"gpu_nms:\", torchvision.ops.nms(b, torch.tensor([0.9, 0.8], device=\"cuda\"), 0.5).tolist())"' 2>&1 | tail -4
 fi
+# scverse stack (images that have it): scanpy, decoupler and LIANA+ on synthetic data.
+singularity exec --cleanenv "%s" bash --norc -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate jlab-env && python ./scverse.py' 2>&1 | tail -40
 singularity exec --cleanenv "%s" bash --norc -c 'export PATH=/opt/cellranger:/opt/cellranger-arc:/opt/cellranger-9.0.1:/opt/cellranger-arc-2.0.2:$PATH; cellranger --version; cellranger-arc --version' 2>&1 | sed 's/^/cellranger: /'
 bash ./script.sh > jupyter.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$host" "$password"
 pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
-""" % (m.group(1), m.group(1), m.group(1))
+""" % ((m.group(1),) * 4)
         if gpu:
             sbatch = sbatch.replace("cd \"$SLURM_SUBMIT_DIR\"\n", "cd \"$SLURM_SUBMIT_DIR\"\nexport TEST_GPU=1\n", 1)
-        job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py"}, sbatch,
+        job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py",
+                                                      "scverse.py": HERE / "probes/scverse.py"}, sbatch,
                            extra="--gres=gpu:1" if gpu else "")
         ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
               and re.search(r"^cellranger: cellranger (cellranger-)?\d+\.\d+\.\d+", out, re.M)
               and re.search(r"^cellranger: cellranger-arc (cellranger-arc-)?\d+\.\d+\.\d+", out, re.M))
+        # Images labelled with LIANA+ must pass the scverse check; others skip it.
+        ok = ok and (re.search(r"^scverse: ok", out, re.M) if "LIANA+" in key else "scverse: FAILED" not in out)
         if gpu:
             ok = ok and re.search(r"^gpu: True", out, re.M) and "gpu_matmul: True" in out and "gpu_nms: [0]" in out
         return bool(ok), job, out
@@ -660,7 +670,7 @@ PLUGINS = {p.app: p for p in (RStudio(), Jupyter(), VSCode())}
 
 # --------------------------------------------------------------------------- flow
 def summary_of(out):
-    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:)"
+    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:)"
     return "\n".join(l[:160] for l in out.splitlines() if re.match(keep, l))
 
 
