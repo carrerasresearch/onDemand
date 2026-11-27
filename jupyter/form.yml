@@ -23,8 +23,12 @@ attributes:
       - ["Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0", "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0"]
     help: |
       All images run on CPU or GPU nodes and include Cell Ranger ARC 2.0.2.
+      Images that name scanpy and LIANA+ also include the scverse single-cell
+      stack (scanpy, anndata, mudata, muon, squidpy, decoupler, LIANA+);
+      `/etc/ood-python-packages.txt` in the image lists every package.
       Python packages you install with pip are kept per Python version, so
       packages installed under one Python version are not visible in another.
+      They also take precedence over the image's own copies.
     display: true
   modules: python
   extra_jupyter_args: ""

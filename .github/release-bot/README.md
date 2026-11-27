@@ -6,7 +6,7 @@ It goes as far as opening a pull request; a maintainer merges it.
 | App | Watches | Each new release becomes |
 |---|---|---|
 | RStudio (`rstudio_bioconductor_321`) | `bioconductor/tidyverse` `X.Y-R-a.b.c` tags (April/October) | `bioconductor_X.Y.sif` (latest stable RStudio Server), a new entry in the version select |
-| Jupyter Lab (`jupyter`) | JupyterLab and PyTorch minor releases on PyPI (PyTorch only once its torchvision exists) | `jupyter-cellranger_YYYY.MM.sif`, a new entry in the image select |
+| Jupyter Lab (`jupyter`) | JupyterLab and PyTorch minor releases on PyPI (PyTorch only once its torchvision exists) | `jupyter-cellranger_YYYY.MM.sif`, a new entry in the image select. The scverse stack (scanpy, LIANA+, ...) is not pinned: each build gets the latest, and the label names scanpy's and LIANA+'s versions |
 | VS Code Tunnel (`vscode_cli_tunnel`) | VS Code stable releases, about quarterly: only once the offered version is 90+ days old, then the newest minor whose last patch is 14+ days old | `vscode-tunnel_<version>.sif`, a new entry in the version select |
 
 For each new release it:
@@ -27,7 +27,7 @@ For each new release it:
    | App | Checks |
    |---|---|
    | RStudio | sign-in, the IDE page, and an R session started with the right library |
-   | Jupyter | login, the API, the Lab page, a Python kernel reaching idle, and that PyTorch imports |
+   | Jupyter | login, the API, the Lab page, a Python kernel reaching idle, that PyTorch imports, and (`probes/scverse.py`) scanpy, decoupler and a LIANA+ ranking on synthetic data |
    | VS Code | the CLI version, the tunnel CLI, and the Slurm client in the image (the tunnel itself needs an interactive Microsoft login) |
 4. if the test passes, opens a PR to `master` and emails the maintainer.
    Only that merge reaches production; it publishes in place, without a
