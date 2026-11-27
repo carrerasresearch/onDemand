@@ -18,7 +18,7 @@ attributes:
     # keep their Python packages; OOD remembers each user's last choice.
     value: "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0"
     options:
-      - ["Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1", "Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1"]
+      - ["Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1, scanpy 1.12, LIANA+ 2.1", "Python 3.12, JupyterLab 4.6, PyTorch 2.14 (CUDA 13.0), Cell Ranger 10.1, scanpy 1.12, LIANA+ 2.1"]
       - ["Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0", "Python 3.12, JupyterLab 4.5, PyTorch 2.10 (CUDA 12.8), Cell Ranger 9.0"]
       - ["Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0", "Python 3.10, JupyterLab 4.4, PyTorch 1.12 (CUDA 11.6), Cell Ranger 9.0"]
     help: |
