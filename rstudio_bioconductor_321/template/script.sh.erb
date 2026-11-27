@@ -56,8 +56,14 @@ mkdir -p -m 700 $workdir
 # there only after install.packages() asks to create it): create it up front.
 mkdir -p "${workdir}/R/user-libs"
 
+# The cluster's Slurm commands (sbatch, srun, ...; jobs start with the node's
+# login environment) and ood-host in the RStudio terminal and from R:
+# ood_slurm.sh. On any problem RStudio still starts, without them.
+OOD_SLURM_BIND=""; OOD_SLURM_PATH=""
+[[ -f ./ood_slurm.sh ]] && source ./ood_slurm.sh && ood_slurm_setup "$RSTUDIO_SERVER_IMAGE" "${OOD_SESSION_DIR:-$PWD}"
+
 # Bindings
-export SINGULARITY_BINDPATH="${workdir}/run:/run,${workdir}/database.conf:/etc/rstudio/database.conf,${workdir}/rsession.sh:/etc/rstudio/rsession.sh,${workdir}/var/lib/rstudio-server:/var/lib/rstudio-server,/ijc:/ijc,/opt/ohpc:/opt/ohpc,/opt/software:/opt/software,/usr/local/bin/lua:/usr/local/bin/lua"
+export SINGULARITY_BINDPATH="${workdir}/run:/run,${workdir}/database.conf:/etc/rstudio/database.conf,${workdir}/rsession.sh:/etc/rstudio/rsession.sh,${workdir}/var/lib/rstudio-server:/var/lib/rstudio-server,/ijc:/ijc,/opt/ohpc:/opt/ohpc,/opt/software:/opt/software,/usr/local/bin/lua:/usr/local/bin/lua${OOD_SLURM_BIND:+,$OOD_SLURM_BIND}"
 
 mkdir -p -m 700 ${workdir}/run ${workdir}/tmp ${workdir}/var/lib/rstudio-server
 cat > ${workdir}/database.conf <<END
@@ -81,6 +87,7 @@ sed 's/^ \{2\}//' > "${RSESSION_WRAPPER_FILE}" << EOL
   export LD_LIBRARY_PATH="/usr/local/lib/R/lib"
   
   export R_LIBS_USER=${workdir}/R/user-libs
+  ${OOD_SLURM_PATH:+export PATH="${OOD_SLURM_PATH}:\$PATH"}
 
   # Launch the original command
   echo "Launching rsession..."

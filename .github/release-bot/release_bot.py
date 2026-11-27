@@ -266,6 +266,21 @@ def poc_job(name, files, sbatch, timeout_min=30, extra=""):
     return job, out
 
 
+def slurm_check(app, image):
+    """Files and job lines that run ood_slurm.sh's self-test in IMAGE: the
+    cluster's Slurm commands inside the app's container (ood-poc's copy)."""
+    try:
+        helper = poc_file(app, "template/ood_slurm.sh")
+    except RuntimeError:
+        return {}, 'echo "ood-slurm: not in this ref"\n'
+    return {"ood_slurm.sh": helper}, f"""module load singularity >/dev/null 2>&1
+( source ./ood_slurm.sh; ood_slurm_setup "{image}" "$PWD/slurmcheck" >/dev/null; ood_slurm_selftest "{image}" ) 2>&1 | tail -1
+"""
+
+
+SLURM_OK = re.compile(r"^ood-slurm: (ok|disabled|not in this ref)", re.M)
+
+
 SBATCH_HEAD = """#!/bin/bash
 #SBATCH -c 2
 #SBATCH --mem=8G
@@ -365,14 +380,16 @@ class RStudio:
         if f'echo "Version {key}:' not in script:
             raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
         workdir = re.search(r'^workdir="\$\{HOME\}/([^"]+)"$', script, re.M).group(1)
-        sbatch = SBATCH_HEAD + """bash ./script.sh > rserver.log 2>&1 &
+        image = re.search(r'export RSTUDIO_SERVER_IMAGE="([^"]+)"', script).group(1)
+        sfiles, sline = slurm_check(self.app, image)
+        sbatch = SBATCH_HEAD + sline + """bash ./script.sh > rserver.log 2>&1 &
 pid=$!
 python3 ./probe.py "$port" "$USER"
 kill $pid; pkill -u "$USER" -f "rserver --www-port $port"; wait
 """
         job, out = poc_job(f"rstudio_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/rstudio.py",
-                                               "bin/auth": REPO / self.app / "template/bin/auth"}, sbatch)
-        ok = ("sign_in: 200" in out and re.search(r"^ide: 200 .*title: RStudio", out, re.M)
+                                               "bin/auth": REPO / self.app / "template/bin/auth", **sfiles}, sbatch)
+        ok = (SLURM_OK.search(out) and "sign_in: 200" in out and re.search(r"^ide: 200 .*title: RStudio", out, re.M)
               and re.search(rf"^rsession: .*--r-libs-user \S*/{re.escape(workdir)}/R/user-libs", out, re.M))
         return bool(ok), job, out
 
@@ -534,7 +551,8 @@ class Jupyter:
         m = re.search(r'export JUPYTERLAB_IMAGE="([^"]+)"', script)
         if not m or f'echo "Image {key}:' not in script:
             raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
-        sbatch = SBATCH_HEAD + r"""host=$(hostname)
+        sfiles, sline = slurm_check(self.app, m.group(1))
+        sbatch = SBATCH_HEAD + sline + r"""host=$(hostname)
 password=pw$RANDOM$RANDOM; SALT=s$RANDOM
 export CONFIG_FILE="$PWD/config.py"
 cat > "$CONFIG_FILE" <<EOL
@@ -567,9 +585,9 @@ pkill -u "$USER" -f "port=${port}"; kill $pid 2>/dev/null; wait
             sbatch = sbatch.replace("cd \"$SLURM_SUBMIT_DIR\"\n", "cd \"$SLURM_SUBMIT_DIR\"\nexport TEST_GPU=1\n", 1)
         job, out = poc_job(f"jupyter_{slug(key)}", {"script.sh": script, "probe.py": HERE / "probes/jupyter.py",
                                                       "scverse.py": HERE / "probes/scverse.py",
-                                                      "usersite.py": HERE / "probes/usersite.py"}, sbatch,
+                                                      "usersite.py": HERE / "probes/usersite.py", **sfiles}, sbatch,
                            extra="--gres=gpu:1" if gpu else "")
-        ok = (re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
+        ok = (SLURM_OK.search(out) and re.search(r"^imports: torch", out, re.M) and "login: 200" in out and "api_status: 200" in out
               and "lab: 200 True" in out and "kernel: idle" in out
               and re.search(r"^cellranger: cellranger (cellranger-)?\d+\.\d+\.\d+", out, re.M)
               and re.search(r"^cellranger: cellranger-arc (cellranger-arc-)?\d+\.\d+\.\d+", out, re.M))
@@ -645,7 +663,8 @@ class VSCode:
         if f'echo "Version {key}:' not in script:
             raise RuntimeError(f"ood-poc's script.sh.erb does not offer {key}")
         image = re.search(r'^SINGULARITY_IMAGE="([^"]+)"$', script, re.M).group(1)
-        sbatch = SBATCH_HEAD + f"""module load singularity >/dev/null 2>&1
+        sfiles, sline = slurm_check(self.app, image)
+        sbatch = SBATCH_HEAD + sline + f"""module load singularity >/dev/null 2>&1
 echo "image={image}"
 singularity exec {image} /usr/container/bin/code --version | head -1 | sed 's/^/code: /'
 singularity exec {image} /usr/container/bin/code tunnel user show 2>&1 | head -1 | sed 's/^/tunnel: /'
@@ -653,9 +672,9 @@ singularity exec {image} /usr/container/bin/code tunnel user show 2>&1 | head -1
 # check the client is installed and the --export=NONE defaults are set.
 singularity exec --cleanenv {image} sh -c 'test -x /usr/bin/sbatch && echo sbatch=ok; echo "export=$SBATCH_EXPORT"; test -f /etc/profile.d/slurm-export.sh && echo profile=ok' 2>&1 | sed 's/^/slurm: /'
 """
-        job, out = poc_job(f"vscode_{slug(key)}", {}, sbatch, timeout_min=10)
+        job, out = poc_job(f"vscode_{slug(key)}", sfiles, sbatch, timeout_min=10)
         version = re.match(r"VS Code (\S+),", key).group(1)
-        ok = (re.search(rf"^code: code {re.escape(version)}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
+        ok = (SLURM_OK.search(out) and re.search(rf"^code: code {re.escape(version)}\b", out, re.M) and re.search(r"^tunnel: \S", out, re.M)
               and "slurm: sbatch=ok" in out and "slurm: export=NONE" in out and "slurm: profile=ok" in out)
         return bool(ok), job, out
 
@@ -674,7 +693,7 @@ PLUGINS = {p.app: p for p in (RStudio(), Jupyter(), VSCode())}
 
 # --------------------------------------------------------------------------- flow
 def summary_of(out):
-    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:|usersite:)"
+    keep = r"^(node=|gpu:|gpu_matmul:|gpu_nms:|listening|sign_in|do_sign_in|ide:|rsession:|imports:|cellranger:|login|api_status|lab:|kernel|image=|code:|tunnel:|slurm:|scverse:|usersite:|ood-slurm:)"
     return "\n".join(l[:160] for l in out.splitlines() if re.match(keep, l))
 
 

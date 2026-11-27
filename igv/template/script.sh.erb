@@ -32,6 +32,12 @@ IGV.track.showDefaultTrackSets=false
 IGV.genome.checkUpdates=false
 EOT
 
+# The cluster's Slurm commands and ood-host in the desktop's terminal
+# (ood_slurm.sh); IGV still starts without them on any problem.
+OOD_SLURM_BIND=""; OOD_SLURM_PATH=""
+[[ -f ./ood_slurm.sh ]] && source ./ood_slurm.sh && ood_slurm_setup "$IMAGE" "${OOD_SESSION_DIR}"
+[[ -n "$OOD_SLURM_PATH" ]] && export SINGULARITYENV_PREPEND_PATH="$OOD_SLURM_PATH"
+
 # 5. Launch inside Singularity
 # We bind the BeeGFS as Read-Only (:ro) so other users can't break it
 singularity exec \
@@ -39,6 +45,7 @@ singularity exec \
     -B "${SHARED_REF}:/genome:ro" \
     -B "${LOCAL_DATA}:/storage:ro" \
     -B "${OOD_SESSION_DIR}:${OOD_SESSION_DIR}" \
+    ${OOD_SLURM_BIND:+-B "$OOD_SLURM_BIND"} \
     --home "${OOD_SESSION_DIR}" \
     "$IMAGE" /bin/bash << 'EOF'
   
